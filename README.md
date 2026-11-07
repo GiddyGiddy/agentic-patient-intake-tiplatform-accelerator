@@ -29,7 +29,7 @@ The backend, database and LLM run in the clinic's own data center because the da
 | Frontend | React 18, nginx | On-premise | – |
 | Backend | FastAPI, LangGraph, SQLAlchemy | On-premise | – |
 | Database | PostgreSQL 16 (only persistent store) | On-premise | – |
-| LLM | Ollama (local, rule-based fallback) | On-premise | – |
+| LLM | Ollama or Foundry Local (local, rule-based fallback) | On-premise | – |
 | Gesundheits-ID (OIDC) | OpenID Connect / OAuth2 | TI | `mock-id-dienst` :8081 |
 | TI gateway / Konnektor (HSM-B / SMC-B) | Reverse proxy, signs requests, adds Telematik-ID | TI | `mock-ti-gateway` :8082 |
 | ePA + KIS (FHIR / ISiK) | HAPI FHIR | TI / clinic | `mock-kis-fhir` :8080 (+ `mock-kis-seed`) |
@@ -49,9 +49,85 @@ podman compose up --build
 | Mock TI gateway | http://localhost:8082/health |
 | Mock KIS/ePA (HAPI FHIR) | http://localhost:8080/fhir |
 | Mock KIM-CM (SMTP) | localhost:2525 |
-| LLM (Ollama) | http://localhost:11434 (`podman compose exec llm ollama pull llama3.1`) |
+| LLM (Ollama) | http://localhost:11434 (`podman compose exec llm ollama pull llama3.2:3b`) |
 
 Demo patients: `X110000001` (two active medications in the ePA), `X110000002` (none). Without a reachable LLM the intake agent uses a rule-based fallback. On Windows, use `127.0.0.1` instead of `localhost` for published database ports.
+
+The development `.env` selects `llama3.2:3b` (Compose falls back to `llama3.1` if
+`LLM_MODEL` is unset). To evaluate another locally installed
+Ollama model, set `LLM_MODEL` in the shell before starting or recreating the backend; in
+PowerShell, for example, use `$env:LLM_MODEL = "<model-name>"` and then
+`podman compose up -d --no-build backend`. Changing the shell variable does not update an
+already running container. Model output and triage must be evaluated using synthetic data;
+neither the model nor the rule-based fallback is validated for clinical use.
+
+### Compare local models with synthetic data
+
+The backend supports `LLM_PROVIDER=ollama` (default) and
+`LLM_PROVIDER=foundry_local`. Both intake and KIM use the selected provider.
+The benchmark sends two fixed synthetic intake prompts to the same adapter and
+reports elapsed time, the response, and whether its JSON has the expected fields.
+It is **not** an accuracy, hallucination, safety, or clinical validation. Compare
+the outputs manually as well as the timings; the first request may include
+model warm-up. Never use real patient information in this benchmark.
+
+For Foundry Local on Windows, install Foundry Local and the backend's Python
+dependencies if not already present. The following uses the NPU variant of
+Phi-4 Mini; select a device/model supported by your hardware and available
+memory. Downloading and loading may take time:
+
+```powershell
+foundry model download phi-4-mini --device NPU
+foundry model load phi-4-mini --device NPU
+foundry service status
+foundry service list
+```
+
+Use the **actual** service origin printed by `foundry service status` and the
+loaded **Model ID** from `foundry service list`; the port and model variant can
+differ from these examples. From the repository root:
+
+```powershell
+python backend\benchmark_llm.py --provider foundry_local --base-url http://127.0.0.1:5273 --model phi-4-mini-instruct-openvino-npu:4 --repeats 2
+python backend\benchmark_llm.py --provider ollama --base-url http://127.0.0.1:11434 --model qwen2.5:3b --repeats 2
+```
+
+Each model must first be downloaded and loaded by its corresponding runtime.
+Repeat the Foundry commands with other catalog models and their supported device
+options to compare them. A nonzero benchmark exit code indicates a request
+failure or invalid response schema. For Python dependencies, use the same
+environment as the backend (`python -m pip install -r backend\requirements.txt`).
+If a separate host Ollama process already uses port 11434, the host benchmark
+may reach that instance rather than the Compose container. Verify its model list
+with `ollama list` and use the intended instance's reachable URL.
+
+**Container networking:** A Windows Foundry endpoint bound to `127.0.0.1` is
+reachable by the host benchmark, but that address inside the backend container
+is the container itself. Do not expose Foundry publicly or on the LAN to work
+around this. In-app Foundry use requires an independently configured, secured
+endpoint reachable from the backend container; this connection has not been
+verified for the Windows/Podman setup. Use synthetic data when testing it.
+Once such an endpoint exists, set the following in PowerShell, replacing the
+placeholders, then rebuild/recreate the development backend:
+
+```powershell
+$env:LLM_PROVIDER = "foundry_local"
+$env:LLM_BASE_URL = "http://<container-reachable-host>:<port>"
+$env:LLM_MODEL = "<loaded-model-id>"
+podman compose up -d --build backend
+```
+
+To return to Ollama, remove these shell overrides and recreate the backend:
+
+```powershell
+Remove-Item Env:LLM_PROVIDER, Env:LLM_BASE_URL, Env:LLM_MODEL -ErrorAction SilentlyContinue
+podman compose up -d --build backend
+```
+
+Compose then uses the values in `.env`, or its Ollama defaults if those entries
+are absent. Production retains its existing Ollama configuration; do not change
+it for a benchmark. Provider failures fall back to deterministic intake or a
+template KIM letter, with a warning in the backend logs.
 
 ## Agent flow
 

@@ -1,4 +1,6 @@
-﻿from pydantic_settings import BaseSettings, SettingsConfigDict
+﻿from typing import Literal
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -29,6 +31,7 @@ class Settings(BaseSettings):
 
     llm_base_url: str = ""
     llm_model: str = "llama3.1"
+    llm_provider: Literal["ollama", "foundry_local"] = "ollama"
 
     cors_origins: str = "http://localhost:3000"  # comma separated
     session_ttl_s: int = 3600  # idle lifetime of an intake session

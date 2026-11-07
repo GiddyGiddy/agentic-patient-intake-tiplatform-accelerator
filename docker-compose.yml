@@ -16,7 +16,9 @@ services:
     environment:
       - OIDC_ISSUER=http://mock-id-dienst:8081
       - OIDC_JWKS_URL=http://mock-id-dienst:8081/jwks
-      - LLM_BASE_URL=http://llm:11434
+      - LLM_BASE_URL=${LLM_BASE_URL:-http://llm:11434}
+      - LLM_MODEL=${LLM_MODEL:-llama3.1}
+      - LLM_PROVIDER=${LLM_PROVIDER:-ollama}
       # all KIS/ePA calls go through the mock TI gateway (SMC-B signature + Telematik-ID)
       - FHIR_BASE_URL=http://mock-ti-gateway:8082/fhir
       - EPA_BASE_URL=http://mock-ti-gateway:8082/fhir
@@ -60,11 +62,15 @@ services:
       - "11434:11434"
     volumes:
       - ollama-data:/root/.ollama
+    networks:
+      - ti-network
 
   mock-id-dienst:
     build: ./mock-ti-services/mock-id-dienst
     ports:
       - "8081:8081"
+    networks:
+      - ti-network
 
   mock-kis-fhir:
     image: docker.io/hapiproject/hapi:latest

@@ -86,15 +86,19 @@ export function getSession() {
   } catch {
     // corrupt entry: fall through and clear
   }
-  clearSession();
+  clearAppData(hasCallbackParams());
   return null;
+}
+
+function clearAppData(preservePkce = false) {
+  Object.keys(sessionStorage)
+    .filter((k) => k.startsWith(PREFIX) && !(preservePkce && k === PKCE_KEY))
+    .forEach((k) => sessionStorage.removeItem(k));
 }
 
 /** Removes the token and all stored conversation data. */
 export function clearSession() {
-  Object.keys(sessionStorage)
-    .filter((k) => k.startsWith(PREFIX))
-    .forEach((k) => sessionStorage.removeItem(k));
+  clearAppData();
 }
 
 export function logout() {
