@@ -69,6 +69,27 @@ test("an expired session is discarded together with chat data", () => {
   expect(sessionStorage.getItem("intake.chat")).toBeNull();
 });
 
+test("session initialization preserves pending PKCE on a login callback but clears stale chat", async () => {
+  window.location.search = "?code=abc&state=s1";
+  sessionStorage.setItem("intake.pkce", JSON.stringify({ verifier: "v", state: "s1" }));
+  sessionStorage.setItem("intake.chat", "{}");
+  fetch.mockResolvedValue({
+    ok: true,
+    json: async () => ({ access_token: fakeJwt("X110000001"), expires_in: 3600 }),
+  });
+
+  expect(getSession()).toBeNull();
+  expect(sessionStorage.getItem("intake.chat")).toBeNull();
+  expect((await completeLogin()).sub).toBe("X110000001");
+  expect(sessionStorage.getItem("intake.pkce")).toBeNull();
+});
+
+test("session initialization discards stale PKCE when not processing a callback", () => {
+  sessionStorage.setItem("intake.pkce", "{}");
+  expect(getSession()).toBeNull();
+  expect(sessionStorage.getItem("intake.pkce")).toBeNull();
+});
+
 test("clearSession only removes app keys", () => {
   sessionStorage.setItem("intake.chat", "{}");
   sessionStorage.setItem("other", "keep");

@@ -69,6 +69,25 @@ test("a failed login callback shows an error", async () => {
   await waitFor(() => expect(window.location.search).toBe(""));
 });
 
+test("a login callback exchanges the code and displays the chat", async () => {
+  const token = `h.${btoa(JSON.stringify({ sub: "X110000001" })).replace(/=+$/, "")}.s`;
+  sessionStorage.setItem("intake.pkce", JSON.stringify({ verifier: "v", state: "s1" }));
+  window.history.pushState({}, "", "/?code=abc&state=s1");
+  const fetchSpy = jest.spyOn(global, "fetch").mockResolvedValue({
+    ok: true,
+    json: async () => ({ access_token: token, expires_in: 3600 }),
+  });
+  try {
+    render(<App />);
+    expect(await screen.findByText(`chat for ${token}`)).toBeInTheDocument();
+    expect(fetchSpy.mock.calls[0][1].body.get("code_verifier")).toBe("v");
+    expect(sessionStorage.getItem("intake.pkce")).toBeNull();
+    await waitFor(() => expect(window.location.search).toBe(""));
+  } finally {
+    fetchSpy.mockRestore();
+  }
+});
+
 test("login button starts the OIDC flow", async () => {
   const spy = jest.spyOn(oidc, "login").mockResolvedValue();
   render(<App />);

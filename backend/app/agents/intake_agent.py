@@ -1,10 +1,12 @@
-import json
+import logging
 
 import httpx
 
 from app.agents.state import TRIAGE_LEVELS, IntakeState
+from app.core.llm_client import LLMResponseError, generate, parse_json_response
 from config import settings
 
+log = logging.getLogger(__name__)
 RED = ("brustschmerz", "atemnot", "bewusstlos", "lähmung", "krampfanfall", "chest pain", "unconscious")
 ORANGE = ("starke schmerzen", "blutung", "severe pain", "bleeding")
 YELLOW = ("fieber", "erbrechen", "fever", "vomiting")
@@ -27,54 +29,58 @@ def _more_urgent(a: str, b: str) -> str:
     return min(a, b, key=TRIAGE_LEVELS.index)
 
 
-def _llm_assess(text: str) -> dict | None:
-    if not settings.llm_base_url:
-        return None
-    prompt = (
+def assessment_prompt(text: str) -> str:
+    return (
         "Du bist ein medizinischer Anamnese-Assistent. Fasse die Angaben des Patienten "
         "als Anamnese zusammen und vergib eine Dringlichkeit nach dem Manchester-Triage-System "
         '(Rot, Orange, Gelb, Grün, Blau). Antworte nur als JSON: '
         '{"summary": "...", "triage_score": "..."}\n\nPatientenangaben:\n' + text
     )
+
+
+def _llm_assess(text: str) -> dict | None:
+    if not settings.llm_base_url:
+        return None
     try:
-        r = httpx.post(
-            f"{settings.llm_base_url}/api/generate",
-            json={"model": settings.llm_model, "stream": False, "format": "json", "prompt": prompt},
-            timeout=120,
-        )
-        r.raise_for_status()
-        data = json.loads(r.json()["response"])
-        if data.get("triage_score") in TRIAGE_LEVELS and data.get("summary"):
+        data = parse_json_response(generate(assessment_prompt(text), timeout=120, json_mode=True))
+        if (
+            isinstance(data, dict)
+            and data.get("triage_score") in TRIAGE_LEVELS
+            and isinstance(data.get("summary"), str)
+            and data["summary"].strip()
+        ):
             return data
-    except (httpx.HTTPError, ValueError, KeyError):
-        pass
+        log.warning("LLM assessment response did not match the expected schema")
+    except (httpx.HTTPError, ValueError) as exc:
+        log.warning("LLM assessment failed (%s); using deterministic fallback", type(exc).__name__)
     return None
 
 
-def _llm_followup(text: str) -> str | None:
-    """Returns the next anamnesis question, or None if the LLM considers the anamnesis complete/unavailable."""
-    if not settings.llm_base_url:
-        return None
-    prompt = (
+def followup_prompt(text: str) -> str:
+    return (
         "Du fuehrst eine strukturierte Anamnese (Beschwerden, Beginn, Staerke, Vorerkrankungen, "
         "Medikamente). Entscheide anhand der bisherigen Patientenangaben, ob noch eine wichtige "
         "Information fehlt. Antworte nur als JSON: "
         '{"complete": true|false, "question": "eine kurze Frage auf Deutsch"}\n\nPatientenangaben:\n'
         + text
     )
+
+
+def _llm_followup(text: str) -> str | None:
+    """Returns the next anamnesis question, or None if the LLM considers the anamnesis complete/unavailable."""
+    if not settings.llm_base_url:
+        return None
     try:
-        r = httpx.post(
-            f"{settings.llm_base_url}/api/generate",
-            json={"model": settings.llm_model, "stream": False, "format": "json", "prompt": prompt},
-            timeout=60,
-        )
-        r.raise_for_status()
-        data = json.loads(r.json()["response"])
+        data = parse_json_response(generate(followup_prompt(text), timeout=60, json_mode=True))
+        if not isinstance(data, dict) or not isinstance(data.get("complete"), bool):
+            raise LLMResponseError("Invalid follow-up schema")
         question = data.get("question")
         if data.get("complete") is False and isinstance(question, str) and question.strip():
             return question.strip()
-    except (httpx.HTTPError, ValueError, KeyError, AttributeError):
-        pass
+        if data["complete"] is False:
+            raise LLMResponseError("Missing follow-up question")
+    except (httpx.HTTPError, ValueError) as exc:
+        log.warning("LLM follow-up failed (%s); using fallback", type(exc).__name__)
     return None
 
 

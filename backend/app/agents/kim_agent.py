@@ -1,10 +1,14 @@
 import json
+import logging
 
 import httpx
 
 from app.agents.state import IntakeState
 from app.core.kim_outbox import enqueue_and_send
+from app.core.llm_client import generate
 from config import settings
+
+log = logging.getLogger(__name__)
 
 
 def _meds_text(state: IntakeState) -> str:
@@ -41,14 +45,9 @@ def _llm_letter(state: IntakeState) -> str | None:
         f"Termin: {state.get('slot_start')}"
     )
     try:
-        r = httpx.post(
-            f"{settings.llm_base_url}/api/generate",
-            json={"model": settings.llm_model, "stream": False, "prompt": prompt},
-            timeout=120,
-        )
-        r.raise_for_status()
-        return r.json().get("response") or None
-    except httpx.HTTPError:
+        return generate(prompt, timeout=120)
+    except (httpx.HTTPError, ValueError) as exc:
+        log.warning("LLM letter generation failed (%s); using template", type(exc).__name__)
         return None
 
 
