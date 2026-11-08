@@ -1,0 +1,65 @@
+# Staging overlay: runs the TI/IdP/KIM counterparts as on-VM stubs so the full stack can be tested
+# end-to-end without a real TI gateway. NEVER use for production (deploy.sh enables it only for
+# `staging`, or when STAGING_MOCKS=1).
+#
+#   podman compose -f compose.prod.yml -f compose.staging.yml up -d
+#
+# The overlay overrides the backend's TI/IdP/KIM endpoints (environment beats env_file), so the
+# staging env file can keep its placeholder hostnames.
+
+services:
+  backend:
+    environment:
+      OIDC_ISSUER: http://mock-id-dienst:8081
+      OIDC_JWKS_URL: http://mock-id-dienst:8081/jwks
+      FHIR_BASE_URL: http://mock-ti-gateway:8082/fhir
+      EPA_BASE_URL: http://mock-ti-gateway:8082/fhir
+      KIM_SMTP_HOST: mock-kim-cm
+      KIM_SMTP_PORT: "2525"
+    depends_on:
+      mock-ti-gateway:
+        condition: service_started
+      mock-kim-cm:
+        condition: service_started
+      mock-id-dienst:
+        condition: service_started
+
+  mock-id-dienst:
+    image: ${REGISTRY}/mock-id-dienst:${IMAGE_TAG}
+    restart: unless-stopped
+    networks: [internal]
+
+  mock-kim-cm:
+    image: ${REGISTRY}/mock-kim-cm:${IMAGE_TAG}
+    restart: unless-stopped
+    networks: [internal]
+
+  mock-ti-gateway:
+    image: ${REGISTRY}/mock-ti-gateway:${IMAGE_TAG}
+    restart: unless-stopped
+    environment:
+      UPSTREAM_FHIR_URL: http://mock-kis-fhir:8080/fhir
+    depends_on:
+      - mock-kis-fhir
+    networks: [internal]
+
+  mock-kis-fhir:
+    image: docker.io/hapiproject/hapi:latest
+    restart: unless-stopped
+    environment:
+      hapi.fhir.fhir_version: R4
+      hapi.fhir.allow_external_references: "true"
+    networks: [internal]
+
+  # Idempotent demo data (Patient, Slot, ePA MedicationStatement); exits when done.
+  mock-kis-seed:
+    image: docker.io/library/python:3.12-alpine
+    restart: "no"
+    volumes:
+      - ./mock-ti-services/mock-kis-fhir/seed.py:/seed.py:ro
+    command: ["python", "/seed.py"]
+    environment:
+      FHIR_BASE_URL: http://mock-kis-fhir:8080/fhir
+    depends_on:
+      - mock-kis-fhir
+    networks: [internal]

@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     kim_recipient: str = "arzt@praxis.kim.test"
 
     llm_base_url: str = ""
-    llm_model: str = "llama3.1"
+    llm_model: str = "llama3.2:3b"
     llm_provider: Literal["ollama", "foundry_local"] = "ollama"
 
     cors_origins: str = "http://localhost:3000"  # comma separated

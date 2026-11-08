@@ -33,6 +33,10 @@ jobs:
             context: frontend
           - name: mock-ti-gateway
             context: mock-ti-services/mock-ti-gateway
+          - name: mock-id-dienst
+            context: mock-ti-services/mock-id-dienst
+          - name: mock-kim-cm
+            context: mock-ti-services/mock-kim-cm
     env:
       SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
       HAS_COSIGN: ${{ secrets.COSIGN_PRIVATE_KEY != '' }}
