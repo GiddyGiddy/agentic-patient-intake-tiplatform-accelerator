@@ -21,7 +21,7 @@ IDP = os.environ.get("IDP", "http://mock-id-dienst:8081").rstrip("/")
 KVNR = os.environ.get("KVNR", "X110000001")
 TIMEOUT = int(os.environ.get("TIMEOUT_S", "300"))
 CLIENT_ID = "patient-intake-frontend"
-REDIRECT_URI = os.environ.get("REDIRECT_URI") or f"https://{os.environ.get('STAGING_HOST', 'localhost')}/"
+REDIRECT_URI = os.environ.get("REDIRECT_URI") or f"https://{os.environ.get('STAGING_HOST') or 'localhost'}/"
 TLS = ssl.create_default_context()
 TLS.check_hostname = False
 TLS.verify_mode = ssl.CERT_NONE
@@ -59,6 +59,12 @@ def login() -> str:
         raise SystemExit("IdP did not redirect")
     except urllib.error.HTTPError as redirect:
         location = redirect.headers.get("Location", "")
+        if redirect.code not in (301, 302, 303, 307) or not location:
+            raise SystemExit(
+                f"IdP rejected the login: HTTP {redirect.code} {redirect.read()[:200]!r} "
+                f"(redirect_uri={REDIRECT_URI}; must be listed in the IdP's ALLOWED_REDIRECT_URIS, "
+                "see STAGING_HOST / REDIRECT_URI)"
+            ) from None
     code = urllib.parse.parse_qs(urllib.parse.urlparse(location).query).get("code", [""])[0]
     check("IdP issued an authorization code", bool(code))
     form = urllib.parse.urlencode({
