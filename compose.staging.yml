@@ -8,8 +8,20 @@
 # staging env file can keep its placeholder hostnames.
 
 services:
+  # Extra TLS listeners for browser testing: UI on :3000, mock IdP on :8443.
+  # STAGING_HOST = the address the browser uses (IP or DNS name of the VM); deploy.sh reads it from the env file.
+  proxy:
+    ports:
+      - "3000:3000"
+      - "8443:8443"
+    volumes:
+      - ./deploy/nginx/staging.conf:/etc/nginx/conf.d/staging.conf:ro
+    depends_on:
+      - mock-id-dienst
+
   backend:
     environment:
+      CORS_ORIGINS: https://${STAGING_HOST:-localhost},https://${STAGING_HOST:-localhost}:3000
       OIDC_ISSUER: http://mock-id-dienst:8081
       OIDC_JWKS_URL: http://mock-id-dienst:8081/jwks
       FHIR_BASE_URL: http://mock-ti-gateway:8082/fhir
@@ -27,6 +39,9 @@ services:
   mock-id-dienst:
     image: ${REGISTRY}/mock-id-dienst:${IMAGE_TAG}
     restart: unless-stopped
+    environment:
+      # redirect targets the browser login may return to (also drives the IdP's CORS allow-list)
+      ALLOWED_REDIRECT_URIS: https://${STAGING_HOST:-localhost}/,https://${STAGING_HOST:-localhost}:3000/
     networks: [internal]
 
   mock-kim-cm:
@@ -49,6 +64,9 @@ services:
     environment:
       hapi.fhir.fhir_version: R4
       hapi.fhir.allow_external_references: "true"
+      # The default jdbc:h2:mem:test_mem is dropped when the pool closes its last connection
+      # ("Table HFJ_RESOURCE not found"); DB_CLOSE_DELAY=-1 keeps it for the container's lifetime.
+      SPRING_DATASOURCE_URL: jdbc:h2:mem:test_mem;DB_CLOSE_DELAY=-1
     networks: [internal]
 
   # Idempotent demo data (Patient, Slot, ePA MedicationStatement); exits when done.

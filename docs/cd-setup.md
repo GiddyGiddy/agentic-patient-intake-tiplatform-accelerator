@@ -71,8 +71,18 @@ Notes:
   container on the default network, not from the running `llm` container.
 - The proxy is recreated on every deploy because nginx caches the upstream IPs; on a failed health check
   `deploy.sh` prints `curl -v`, proxy and backend logs (a missing `/etc/intake/tls/*.pem` is reported explicitly).
-- The mock IdP is not exposed to browsers, so the interactive login flow needs a real/reachable IdP; the smoke test
-  only proves that auth is enforced.
+- Browser access on staging: the UI is at `https://<vm>/` and `https://<vm>:3000/`, the mock IdP at
+  `https://<vm>:8443` (both extra ports are TLS listeners on the proxy, `deploy/nginx/staging.conf`; plain HTTP
+  would break PKCE because `crypto.subtle` needs a secure context). Set `STAGING_HOST=<vm-ip-or-name>` in
+  `/etc/intake/staging.env`, set the repo variables `PROD_API_URL=https://<vm>` and
+  `PROD_OIDC_ISSUER=https://<vm>:8443`, re-run CD (the frontend bakes them in at build time), deploy the new tag,
+  and open ports 443, 3000 and 8443 in the VM firewall. Visit each origin once and accept the self-signed
+  certificate (or import it into the OS trust store). Because the image bakes in these URLs, a production build
+  needs different values.
+- Use `./deploy/e2e-test.sh` for the same flow without a browser: it logs in at the mock IdP (code flow + PKCE)
+  from a throw-away container on the stack network and drives chat, consent, ePA read, booking and KIM through
+  the proxy. It needs the staging stubs and a pulled LLM model; a CPU-only LLM can exceed the proxy's 60 s
+  `proxy_read_timeout` (HTTP 504), in which case run it with `BASE=http://backend:8000`.
 
 `deploy.sh` rolls back to the previous tag if the new one does not become healthy. The first deploy has no
 previous tag, so a failure leaves the stack down; check `podman compose -p intake-staging -f compose.prod.yml logs`.

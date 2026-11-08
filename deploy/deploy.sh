@@ -22,7 +22,12 @@ if command -v podman >/dev/null 2>&1; then ENGINE=podman; else ENGINE=docker; fi
 # Staging runs the TI/IdP/KIM stubs on the VM unless STAGING_MOCKS=0; production never does.
 if [ "$ENVIRONMENT" = "staging" ]; then STAGING_MOCKS="${STAGING_MOCKS:-1}"; else STAGING_MOCKS=0; fi
 COMPOSE_FILES=(-f compose.prod.yml)
-[ "$STAGING_MOCKS" = "1" ] && COMPOSE_FILES+=(-f compose.staging.yml)
+if [ "$STAGING_MOCKS" = "1" ]; then
+  COMPOSE_FILES+=(-f compose.staging.yml)
+  # address the browser uses (IP/DNS of this VM); set STAGING_HOST=... in the env file or the shell
+  STAGING_HOST="${STAGING_HOST:-$(sed -n 's/^STAGING_HOST=//p' "$PROD_ENV_FILE" 2>/dev/null | tail -n1)}"
+  export STAGING_HOST="${STAGING_HOST:-localhost}"
+fi
 compose() { "$ENGINE" compose -p "$PROJECT" "${COMPOSE_FILES[@]}" "$@"; }
 
 [ -r "$PROD_ENV_FILE" ] || { echo "missing env file $PROD_ENV_FILE" >&2; exit 2; }
