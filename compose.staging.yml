@@ -51,7 +51,7 @@ services:
       hapi.fhir.allow_external_references: "true"
       # The default jdbc:h2:mem:test_mem is dropped when the pool closes its last connection
       # ("Table HFJ_RESOURCE not found"); DB_CLOSE_DELAY=-1 keeps it for the container's lifetime.
-      spring.datasource.url: jdbc:h2:mem:test_mem;DB_CLOSE_DELAY=-1
+      SPRING_DATASOURCE_URL: jdbc:h2:mem:test_mem;DB_CLOSE_DELAY=-1
     networks: [internal]
 
   # Idempotent demo data (Patient, Slot, ePA MedicationStatement); exits when done.
