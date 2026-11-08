@@ -10,9 +10,11 @@ ENVIRONMENT="${1:-staging}"
 if command -v podman >/dev/null 2>&1; then ENGINE=podman; else ENGINE=docker; fi
 NETWORK="intake-${ENVIRONMENT}_internal"
 HERE="$(cd "$(dirname "$0")" && pwd)"
+PROD_ENV_FILE="${PROD_ENV_FILE:-/etc/intake/${ENVIRONMENT}.env}"
+export STAGING_HOST="${STAGING_HOST:-$(sed -n 's/^STAGING_HOST=//p' "$PROD_ENV_FILE" 2>/dev/null | tail -n1)}"
 
 "$ENGINE" network inspect "$NETWORK" >/dev/null 2>&1 || { echo "network $NETWORK not found; is the stack up?" >&2; exit 2; }
 exec "$ENGINE" run --rm --network "$NETWORK" \
-  -e BASE -e IDP -e KVNR -e TIMEOUT_S -e REDIRECT_URI \
+  -e BASE -e IDP -e KVNR -e TIMEOUT_S -e REDIRECT_URI -e STAGING_HOST \
   -v "$HERE/e2e_test.py:/e2e_test.py:ro" \
   docker.io/library/python:3.12-alpine python -u /e2e_test.py
