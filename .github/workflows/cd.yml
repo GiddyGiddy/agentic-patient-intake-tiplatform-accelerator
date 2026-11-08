@@ -75,6 +75,8 @@ jobs:
         run: docker push "${{ steps.img.outputs.ref }}"
 
       - name: SBOM
+        # best effort: a flaky syft download must not fail a publish that already passed scan and push
+        continue-on-error: true
         uses: anchore/sbom-action@v0
         with:
           image: ${{ steps.img.outputs.ref }}
