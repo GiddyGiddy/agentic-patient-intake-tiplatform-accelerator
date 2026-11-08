@@ -2,6 +2,7 @@
 import json
 import os
 import time
+import urllib.error
 import urllib.request
 from datetime import datetime, timedelta, timezone
 
@@ -10,13 +11,30 @@ BASE = os.environ.get("FHIR_BASE_URL", "http://localhost:8080/fhir")
 
 def put(resource_type: str, rid: str, body: dict) -> None:
     body = {**body, "resourceType": resource_type, "id": rid}
-    req = urllib.request.Request(
-        f"{BASE}/{resource_type}/{rid}",
-        data=json.dumps(body).encode(),
-        method="PUT",
-        headers={"Content-Type": "application/fhir+json"},
-    )
-    urllib.request.urlopen(req, timeout=30).read()
+    url = f"{BASE}/{resource_type}/{rid}"
+    last: urllib.error.HTTPError | None = None
+    for attempt in range(1, 5):
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(body).encode(),
+            method="PUT",
+            headers={"Content-Type": "application/fhir+json"},
+        )
+        try:
+            urllib.request.urlopen(req, timeout=30).read()
+            return
+        except urllib.error.HTTPError as err:
+            last = err
+            print(f"PUT {url} -> {err.code} (attempt {attempt}): {err.read()[:300]!r}", flush=True)
+            if err.code < 500:
+                break
+            time.sleep(3 * attempt)
+    # A re-seed that hits a server error is harmless if the resource is already there.
+    try:
+        urllib.request.urlopen(url, timeout=10).read()
+        print(f"{resource_type}/{rid} already present, keeping it", flush=True)
+    except Exception:
+        raise last
 
 
 def wait_for_server() -> None:
