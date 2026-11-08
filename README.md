@@ -53,8 +53,8 @@ podman compose up --build
 
 Demo patients: `X110000001` (two active medications in the ePA), `X110000002` (none). Without a reachable LLM the intake agent uses a rule-based fallback. On Windows, use `127.0.0.1` instead of `localhost` for published database ports.
 
-The development `.env` selects `llama3.2:3b` (Compose falls back to `llama3.1` if
-`LLM_MODEL` is unset). To evaluate another locally installed
+All environments default to `llama3.2:3b` (the development `.env`, the Compose fallback, the backend default and
+`deploy/prod.env.example`). To evaluate another locally installed
 Ollama model, set `LLM_MODEL` in the shell before starting or recreating the backend; in
 PowerShell, for example, use `$env:LLM_MODEL = "<model-name>"` and then
 `podman compose up -d --no-build backend`. Changing the shell variable does not update an

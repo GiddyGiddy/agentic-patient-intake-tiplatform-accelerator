@@ -18,7 +18,12 @@ HEALTH_TIMEOUT_S="${HEALTH_TIMEOUT_S:-120}"
 KEEP_BACKUPS="${KEEP_BACKUPS:-14}"
 
 if command -v podman >/dev/null 2>&1; then ENGINE=podman; else ENGINE=docker; fi
-compose() { "$ENGINE" compose -p "$PROJECT" -f compose.prod.yml "$@"; }
+
+# Staging runs the TI/IdP/KIM stubs on the VM unless STAGING_MOCKS=0; production never does.
+if [ "$ENVIRONMENT" = "staging" ]; then STAGING_MOCKS="${STAGING_MOCKS:-1}"; else STAGING_MOCKS=0; fi
+COMPOSE_FILES=(-f compose.prod.yml)
+[ "$STAGING_MOCKS" = "1" ] && COMPOSE_FILES+=(-f compose.staging.yml)
+compose() { "$ENGINE" compose -p "$PROJECT" "${COMPOSE_FILES[@]}" "$@"; }
 
 [ -r "$PROD_ENV_FILE" ] || { echo "missing env file $PROD_ENV_FILE" >&2; exit 2; }
 mkdir -p "$STATE_DIR" "$BACKUP_DIR"
@@ -31,6 +36,19 @@ wait_healthy() {
     if [ "$SECONDS" -ge "$deadline" ]; then return 1; fi
     sleep 3
   done
+}
+
+diagnose() {
+  echo "---- diagnostics ----" >&2
+  compose ps -a >&2 || true
+  echo "-- curl -vk $HEALTH_URL" >&2
+  curl -vsk --max-time 5 "$HEALTH_URL" >&2 || true
+  echo "-- proxy logs" >&2
+  compose logs --tail 40 proxy >&2 || true
+  echo "-- backend logs" >&2
+  compose logs --tail 40 backend >&2 || true
+  [ -r /etc/intake/tls/fullchain.pem ] && [ -r /etc/intake/tls/privkey.pem ] \
+    || echo "!! TLS files /etc/intake/tls/{fullchain,privkey}.pem missing/unreadable (proxy cannot start)" >&2
 }
 
 backup_db() {
@@ -55,6 +73,7 @@ rollback() {
   fi
   echo "!! rolling back to $PREVIOUS_TAG"
   IMAGE_TAG="$PREVIOUS_TAG" compose up -d --remove-orphans
+  IMAGE_TAG="$PREVIOUS_TAG" compose up -d --force-recreate --no-deps proxy || true
   if wait_healthy; then
     echo "rollback to $PREVIOUS_TAG healthy"
   else
@@ -65,7 +84,9 @@ rollback() {
 echo "== deploying $TAG to $ENVIRONMENT (previous: ${PREVIOUS_TAG:-none})"
 export IMAGE_TAG="$TAG"
 
-compose pull backend frontend
+# Pull every image (also nginx/postgres/ollama and the staging stubs). A failed pull is only fatal
+# if an image is not already cached, which `compose up` reports.
+compose pull || echo "!! some images could not be pulled; continuing with cached images" >&2
 
 # Database first: start it (no-op if running), back it up, then migrate before the new backend starts.
 compose up -d postgres
@@ -87,14 +108,23 @@ if ! compose up -d --remove-orphans; then
   exit 1
 fi
 
+# nginx resolves upstream names once at start; recreated backend/frontend get new IPs, so the proxy
+# must be recreated too, otherwise it answers 502 for a healthy backend.
+compose up -d --force-recreate --no-deps proxy || echo "!! could not recreate proxy" >&2
+
 if wait_healthy; then
   echo "$TAG" > "$TAG_FILE"
   echo "$PREVIOUS_TAG" > "$STATE_DIR/${ENVIRONMENT}.previous"
   rotate_backups
   echo "== $TAG is healthy on $ENVIRONMENT"
+  LLM_MODEL_NAME="$(sed -n 's/^LLM_MODEL=//p' "$PROD_ENV_FILE" | tail -n1)"
+  if [ -n "$LLM_MODEL_NAME" ] && ! compose exec -T llm ollama list 2>/dev/null | grep -q "^${LLM_MODEL_NAME}"; then
+    echo "!! LLM model '$LLM_MODEL_NAME' is not in the ollama volume; chat will fall back or fail." >&2
+    echo "   Run: deploy/pull-llm-model.sh $ENVIRONMENT" >&2
+  fi
 else
   echo "!! $TAG did not become healthy within ${HEALTH_TIMEOUT_S}s" >&2
-  compose logs --tail 80 backend >&2 || true
+  diagnose
   rollback || true
   exit 1
 fi

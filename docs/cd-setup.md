@@ -1,7 +1,7 @@
 # Deployment setup (pull-based CD with GHCR)
 
 Flow: a merge to `main` passes CI, then `cd.yml` builds the images on GitHub-hosted runners, scans them
-with Trivy and pushes them to GHCR as `ghcr.io/<owner>/intake/{backend,frontend,mock-ti-gateway}:<12-char-sha>`.
+with Trivy and pushes them to GHCR as `ghcr.io/<owner>/intake/{backend,frontend,mock-ti-gateway,mock-id-dienst,mock-kim-cm}:<12-char-sha>`.
 The server pulls and deploys by running `deploy/deploy.sh` (pull, DB backup, Alembic, start, health check,
 automatic rollback). No runner or inbound access to the server is needed.
 
@@ -56,8 +56,23 @@ sudo -iu runner
 cd app && git pull
 export REGISTRY=ghcr.io/<owner-lowercase>/intake
 ./deploy/deploy.sh staging <12-char-sha>
+./deploy/pull-llm-model.sh staging          # once: downloads LLM_MODEL into the ollama volume
 ./deploy/smoke-test.sh https://<vm-ip-or-hostname>
 ```
+
+On `staging`, `deploy.sh` also starts the stubs from `compose.staging.yml` (mock IdP, mock TI gateway + HAPI
+FHIR with seed data, mock KIM) and points the backend at them, so no real TI connection is needed. Set
+`STAGING_MOCKS=0` to use the real endpoints from `/etc/intake/staging.env` instead. `production` never starts stubs.
+
+Notes:
+- The VM must be able to pull `nginx`, `postgres`, `ollama` and (staging) `hapiproject/hapi` from Docker Hub or a
+  mirror, plus the GHCR images; already cached images are used if a pull fails.
+- The `internal` network has no internet access, so the model is pulled by `pull-llm-model.sh` through a throw-away
+  container on the default network, not from the running `llm` container.
+- The proxy is recreated on every deploy because nginx caches the upstream IPs; on a failed health check
+  `deploy.sh` prints `curl -v`, proxy and backend logs (a missing `/etc/intake/tls/*.pem` is reported explicitly).
+- The mock IdP is not exposed to browsers, so the interactive login flow needs a real/reachable IdP; the smoke test
+  only proves that auth is enforced.
 
 `deploy.sh` rolls back to the previous tag if the new one does not become healthy. The first deploy has no
 previous tag, so a failure leaves the stack down; check `podman compose -p intake-staging -f compose.prod.yml logs`.
