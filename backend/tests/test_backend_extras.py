@@ -7,7 +7,7 @@ from tests.test_scheduling_agent import FakeClient, FakeResource
 
 
 def test_llm_followup_question_is_used_when_anamnesis_incomplete(monkeypatch):
-    monkeypatch.setattr(intake_agent, "_llm_followup", lambda text: "Nehmen Sie BlutverdÃ¼nner?")
+    monkeypatch.setattr(intake_agent, "_llm_followup", lambda text: intake_agent.FollowupResponse(complete=False, question="Nehmen Sie BlutverdÃ¼nner?"))
     r = intake_agent.intake_node({"messages": ["Husten", "seit zwei Tagen"]})
     assert r["reply"] == "Nehmen Sie BlutverdÃ¼nner?"
     assert r["next_agent"] == "END"
@@ -15,10 +15,11 @@ def test_llm_followup_question_is_used_when_anamnesis_incomplete(monkeypatch):
 
 
 def test_followups_stop_at_the_message_cap(monkeypatch):
-    monkeypatch.setattr(intake_agent, "_llm_followup", lambda text: "noch eine Frage?")
+    monkeypatch.setattr(intake_agent, "_llm_followup", lambda text: intake_agent.FollowupResponse(complete=False, question="noch eine Frage?"))
     msgs = ["Husten"] * intake_agent.MAX_PATIENT_MESSAGES
     r = intake_agent.intake_node({"messages": msgs})
-    assert r["next_agent"] == "ConsentAgent"
+    assert r["next_agent"] == "IntakeUnavailable"
+    assert "triage_score" not in r
 
 
 def test_red_flag_skips_followups(monkeypatch):

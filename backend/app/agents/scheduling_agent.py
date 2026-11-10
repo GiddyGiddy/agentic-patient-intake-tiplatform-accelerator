@@ -11,7 +11,7 @@ from config import settings
 
 log = logging.getLogger(__name__)
 
-# Earliest acceptable start per Manchester level: Rot/Orange/Gelb get acute slots, Grün/Blau standard ones
+# Demo slot mapping: Rot/Orange/Gelb get acute slots, Grün/Blau standard ones.
 _EARLIEST = {
     "Rot": timedelta(0),
     "Orange": timedelta(minutes=10),

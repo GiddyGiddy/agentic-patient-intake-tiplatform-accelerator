@@ -58,7 +58,9 @@ def test_agent_fallbacks_on_provider_error(monkeypatch, caplog):
     assert intake_agent._llm_followup("synthetic") is None
     assert intake_agent._llm_assess("synthetic") is None
     assert kim_agent._llm_letter({"patient_id": "test"}) is None
-    assert "fallback" in caplog.text
+    assert "LLM follow-up failed" in caplog.text
+    assert "LLM assessment failed" in caplog.text
+    assert "using template" in caplog.text
 
 
 def test_http_error_is_propagated(monkeypatch):

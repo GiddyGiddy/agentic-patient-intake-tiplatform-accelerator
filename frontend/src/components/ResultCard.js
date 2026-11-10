@@ -28,6 +28,8 @@ export default function ResultCard({ result, onRestart }) {
           </>
         )}
       </dl>
+      <h3>{t("result.anamnesis")}</h3>
+      <p className="anamnesis-summary">{result.anamnesis_summary?.trim() || t("result.noAnamnesis")}</p>
       {result.medication_plan?.length > 0 && (
         <>
           <h3>{t("result.medication")}</h3>

@@ -1,5 +1,5 @@
 import React from "react";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import Chat from "./Chat";
 import { ApiError, resetSession, sendChat, setConsent } from "../services/api";
@@ -65,6 +65,8 @@ test("emergency: banner, consent dialog, then server-side consent resumes and sh
   expect(setConsent).toHaveBeenCalledWith("tok", true);
   expect(screen.getByText(/Rot – Sofort/)).toBeInTheDocument();
   expect(screen.getByText("Ramipril 5 mg (1-0-0)")).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "Zusammenfassung Ihrer Angaben (Anamnese)" })).toBeInTheDocument();
+  expect(within(screen.getByRole("region", { name: "Ihre Aufnahme ist abgeschlossen" })).getByText("Brustschmerzen")).toBeInTheDocument();
   expect(screen.getByText(/per KIM/)).toBeInTheDocument();
   expect(screen.queryByLabelText("Ihre Nachricht")).not.toBeInTheDocument();
 });
@@ -76,6 +78,7 @@ test("a failed KIM hand-over is announced", async () => {
   await send("Brustschmerzen");
   await userEvent.click(await screen.findByRole("button", { name: "Mit Gesundheits-ID freigeben" }));
   expect(await screen.findByText(/noch nicht per KIM/)).toBeInTheDocument();
+  expect(within(screen.getByRole("region", { name: "Ihre Aufnahme ist abgeschlossen" })).getByText("Brustschmerzen")).toBeInTheDocument();
 });
 
 test("declining shows feedback, tells the server nothing and allows reconsidering", async () => {
@@ -106,6 +109,21 @@ test("follow-up questions only send the new message (history is server-side)", a
   await screen.findByRole("dialog");
   expect(sendChat).toHaveBeenLastCalledWith("tok", "seit drei Tagen");
   expect(screen.queryByRole("link", { name: "112 anrufen" })).not.toBeInTheDocument();
+});
+
+test("stopped intake hides the composer and allows restart", async () => {
+  sendChat.mockResolvedValueOnce({
+    reply: "Die automatische Aufnahme wurde beendet, weil sich Fragen wiederholt haben. Bitte wenden Sie sich an Ihre Praxis.",
+    intake_stopped: true,
+    iam_required: false,
+  });
+  render(<Chat token="tok" onUnauthorized={jest.fn()} />);
+  await send("Kopfschmerzen");
+  await screen.findByText(/automatische Aufnahme wurde beendet/);
+  expect(screen.queryByLabelText("Ihre Nachricht")).not.toBeInTheDocument();
+  await userEvent.click(screen.getByRole("button", { name: "Neues Gespräch" }));
+  await waitFor(() => expect(screen.getByLabelText("Ihre Nachricht")).toBeInTheDocument());
+  expect(resetSession).toHaveBeenCalledWith("tok");
 });
 
 test("errors are announced and can be retried", async () => {

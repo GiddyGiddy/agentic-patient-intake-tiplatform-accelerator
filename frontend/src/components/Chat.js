@@ -124,7 +124,7 @@ export default function Chat({ token, onUnauthorized }) {
   }
 
   const done = Boolean(result?.appointment_id);
-  const showInput = !pending && !declined && !done;
+  const showInput = !pending && !declined && !done && !result?.intake_stopped;
 
   return (
     <div className="chat">

@@ -86,6 +86,10 @@ body {
 .muted {
   color: var(--muted);
 }
+.anamnesis-summary {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .strong {
   font-weight: 600;
   margin-bottom: 0;

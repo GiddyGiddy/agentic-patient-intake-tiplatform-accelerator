@@ -24,8 +24,8 @@ def _template_letter(state: IntakeState) -> str:
     return (
         "Sehr geehrte Kollegin, sehr geehrter Kollege,\n\n"
         "wir übersenden Ihnen die Aufnahmeinformationen zu Ihrem Patienten "
-        f"(ID {state['patient_id']}). Die Ersteinschätzung nach dem Manchester-Triage-System "
-        f"ergab die Dringlichkeit {state.get('triage_score')}.\n\n"
+        f"(ID {state['patient_id']}). Die nicht ärztlich geprüfte automatische "
+        f"Ersteinschätzung ergab die Dringlichkeit {state.get('triage_score')}.\n\n"
         f"Anamnese: {state.get('anamnesis_summary', '')}\n\n"
         f"{_meds_text(state)}\n\n"
         f"Termin: {state.get('slot_start')} (Appointment/{state.get('appointment_id')}).\n\n"
@@ -40,7 +40,7 @@ def _llm_letter(state: IntakeState) -> str | None:
         "Schreibe einen formellen medizinischen Arztbrief als Fließtext auf Deutsch "
         "(Anrede, Anamnese, Einschätzung, Termin, Grußformel). Erfinde keine Befunde.\n"
         f"Anamnese: {state.get('anamnesis_summary')}\n"
-        f"Triage (Manchester): {state.get('triage_score')}\n"
+        f"Automatische Ersteinschätzung (nicht ärztlich geprüft): {state.get('triage_score')}\n"
         f"{_meds_text(state)}\n"
         f"Termin: {state.get('slot_start')}"
     )
@@ -55,7 +55,7 @@ def kim_node(state: IntakeState) -> IntakeState:
     letter = _llm_letter(state) or _template_letter(state)
     triage_record = {
         "patient_id": state["patient_id"],
-        "triage_system": "Manchester",
+        "triage_system": "unvalidated-prototype",
         "triage_score": state.get("triage_score"),
         "appointment_id": state.get("appointment_id"),
         "slot_start": state.get("slot_start"),

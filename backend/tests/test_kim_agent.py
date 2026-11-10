@@ -30,7 +30,8 @@ def test_kim_node_sends_letter_with_machine_readable_triage(monkeypatch):
     assert name == "triage.json"
     record = json.loads(data)
     assert record["triage_score"] == "Gelb"
-    assert record["triage_system"] == "Manchester"
+    assert record["triage_system"] == "unvalidated-prototype"
+    assert "nicht ärztlich geprüfte" in sent["body"]
     assert record["appointment_id"] == "a1"
 
 
