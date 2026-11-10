@@ -41,19 +41,30 @@ const de = {
   "consent.data.anamnesis": "Zusammenfassung Ihrer Angaben (Anamnese)",
   "consent.data.triage": "Automatische Dringlichkeitseinschätzung (nicht ärztlich geprüft)",
   "consent.data.medication": "Medikationsplan aus der elektronischen Patientenakte (nur lesend)",
+  "consent.data.mockMedication": "Synthetische Medikationsdaten aus dem lokalen ePA-Mock (nur lesend)",
   "consent.data.booking": "Terminbuchung im Praxis- bzw. Krankenhausinformationssystem",
   "consent.data.letter": "Arztbrief per KIM an Ihre behandelnde Ärztin oder Ihren Arzt",
+  "consent.data.mockBooking": "Simulierte Terminbuchung im lokalen KIS-Mock",
+  "consent.data.mockLetter": "Simulierter Arztbrief an das lokale KIM-Testmodul",
   "consent.duration":
     "Dauer: Die Freigabe gilt nur für diesen Vorgang und endet mit dessen Abschluss oder mit Ihrem Widerruf.",
+  "consent.mockDuration":
+    "Dauer: Die Demo-Freigabe ist zeitlich begrenzt und endet beim Zurücksetzen oder bei Widerruf.",
   "consent.revokeInfo":
     "Sie können die Freigabe jederzeit widerrufen. Bereits übermittelte Daten verbleiben bei der Praxis.",
   "consent.grant": "Mit Gesundheits-ID freigeben",
+  "consent.mockGrant": "Demo-Daten freigeben",
+  "consent.mockNotice":
+    "Lokale Simulation: Ihre Zustimmung erlaubt nur den Zugriff auf synthetische Daten im ePA-Mock. Dies ist keine echte ePA-Freigabe oder Autorisierung über die Gesundheits-ID.",
+  "consent.referenceUnavailable":
+    "Im Referenz-Test ist die separate ePA-Autorisierung nicht verfügbar. Der Login allein erteilt keine ePA-Freigabe.",
   "consent.decline": "Nicht freigeben",
   "consent.declined.title": "Keine Freigabe erteilt",
   "consent.declined.text":
     "Ohne Freigabe können wir keinen Termin buchen und keinen Arztbrief versenden. Es wurden keine Daten übermittelt.",
   "consent.declined.reconsider": "Freigabe erneut prüfen",
   "consent.status.granted": "Datenfreigabe erteilt",
+  "consent.status.mockGranted": "Demo-Datenfreigabe erteilt",
   "consent.revoke": "Freigabe widerrufen",
   "consent.revoked":
     "Die Freigabe wurde widerrufen. Es werden keine weiteren Daten verwendet.",
@@ -65,9 +76,13 @@ const de = {
   "result.anamnesis": "Zusammenfassung Ihrer Angaben (Anamnese)",
   "result.noAnamnesis": "Keine Zusammenfassung verfügbar.",
   "result.kim": "Arztbrief wurde per KIM an Ihre behandelnde Ärztin oder Ihren Arzt gesendet.",
+  "result.mockKim": "Der simulierte Arztbrief wurde an das lokale KIM-Testmodul übergeben.",
   "result.noTime": "Zeit wird von der Praxis bestätigt",
   "result.medication": "Ihr Medikationsplan aus der ePA",
+  "result.mockMedication": "Synthetischer Medikationsplan aus dem ePA-Mock",
+  "result.mockEpaIncomplete": "Die synthetischen ePA-Mock-Daten konnten nicht vollständig geladen werden.",
   "result.kimFailed": "Der Arztbrief konnte noch nicht per KIM versendet werden. Die Praxis wird informiert.",
+  "result.mockKimFailed": "Der simulierte Arztbrief konnte noch nicht an das KIM-Testmodul übergeben werden.",
 
   "triage.Rot": "Sofort",
   "triage.Orange": "Sehr dringend",

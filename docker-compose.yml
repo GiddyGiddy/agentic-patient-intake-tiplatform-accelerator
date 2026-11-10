@@ -3,16 +3,21 @@ services:
     build:
       context: ./frontend
       args:
-        REACT_APP_API_URL: http://localhost:${BACKEND_PORT:-8000}
-        REACT_APP_OIDC_ISSUER: http://localhost:8081
+        REACT_APP_API_URL: http://127.0.0.1:8000
+        REACT_APP_REFERENCE_LOGIN: "true"
     ports:
-      - "${FRONTEND_PORT:-3000}:80"
+      - "127.0.0.1:3000:80"
+    volumes:
+      - ./frontend/nginx.reference-localhost.conf:/etc/nginx/conf.d/reference-localhost.conf:ro
     depends_on:
       - backend
+      - gsi-callback
 
   backend:
     build: ./backend
     container_name: agentic_backend
+    network_mode: service:gsi-fedmaster
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8084", "--no-access-log"]
     environment:
       - OIDC_ISSUER=http://mock-id-dienst:8081
       - OIDC_JWKS_URL=http://mock-id-dienst:8081/jwks
@@ -25,8 +30,16 @@ services:
       - KIM_SMTP_HOST=mock-kim-cm
       - KIM_SMTP_PORT=2525
       - DATABASE_URL=postgresql+psycopg://${POSTGRES_USER:-intake}:${POSTGRES_PASSWORD:-intake}@postgres:5432/${POSTGRES_DB:-intake}
-    ports:
-      - "${BACKEND_PORT:-8000}:8000"
+      - REFERENCE_RP_ENABLED=true
+      - REFERENCE_BFF_ENABLED=true
+      - REFERENCE_MOCK_EPA_ENABLED=true
+      - REFERENCE_DEMO_SESSION_TTL_S=900
+      - REFERENCE_RP_SIGNING_KEY_FILE=/keys/sign.pem
+      - REFERENCE_RP_ENCRYPTION_KEY_FILE=/keys/enc.pem
+      - REFERENCE_FRONTEND_ORIGIN=http://127.0.0.1:3000
+      - CORS_ORIGINS=http://127.0.0.1:3000
+    volumes:
+      - gsi-keys:/keys:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -36,6 +49,92 @@ services:
         condition: service_started
       mock-id-dienst:
         condition: service_started
+      gsi-server:
+        condition: service_healthy
+      gsi-keys:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import httpx; from app.core.reference_trust import resolve_reference_provider; resolve_reference_provider(httpx.Client(trust_env=False)); httpx.get('http://127.0.0.1:8084/health', timeout=3).raise_for_status()\""]
+      interval: 5s
+      timeout: 15s
+      retries: 12
+
+  gsi-fedmaster:
+    image: patient-intake-gsi-fedmaster
+    build:
+      context: ./mock-ti-services/gematik-reference
+      args:
+        REFERENCE_MODULE: gsi-fedmaster
+    environment:
+      FEDMASTER_RELYINGPARTYCONFIGS_0_ISSUER: http://127.0.0.1:8084
+      FEDMASTER_RELYINGPARTYCONFIGS_0_ORGANIZATIONNAME: local-test-rp
+      FEDMASTER_RELYINGPARTYCONFIGS_0_KEYCONFIG_FILENAME: keys/ref-gsi-es-sig-pubkey.pem
+      FEDMASTER_RELYINGPARTYCONFIGS_0_KEYCONFIG_KEYID: puk_fd_sig
+      FEDMASTER_RELYINGPARTYCONFIGS_0_KEYCONFIG_USE: sig
+      REQUEST_LOGGING_ENABLED: "false"
+      LOG_LEVEL_GEMATIK: WARN
+    ports:
+      - "127.0.0.1:8000:8084"
+      - "127.0.0.1:8085:8085"
+    networks:
+      ti-network:
+        aliases:
+          - gsi-browser-fedmaster
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8183/actuator/health"]
+      interval: 3s
+      timeout: 2s
+      retries: 40
+
+  gsi-server:
+    image: agentic-patient-intake-gematik-accelerator-gsi-server
+    build:
+      context: ./mock-ti-services/gematik-reference
+    network_mode: service:gsi-fedmaster
+    environment:
+      GSI_FEDMASTER_MODE: remote
+      REQUEST_LOGGING_ENABLED: "false"
+      LOG_LEVEL_GEMATIK: WARN
+    depends_on:
+      gsi-fedmaster:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8185/actuator/health"]
+      interval: 3s
+      timeout: 2s
+      retries: 40
+
+  gsi-keys:
+    image: patient-intake-gsi-rp-test
+    build:
+      context: ./mock-ti-services/gematik-reference
+      dockerfile: Dockerfile.test
+    user: "0:0"
+    volumes:
+      - gsi-keys:/keys
+    entrypoint: ["python", "-c"]
+    command:
+      - |
+        from pathlib import Path
+        from cryptography.hazmat.primitives.asymmetric import ec
+        from cryptography.hazmat.primitives import serialization
+        keys = Path("/keys")
+        (keys / "sign.pem").write_bytes(Path("/tests/fixtures/ref-gsi-sig-privkey.pem").read_bytes())
+        enc = keys / "enc.pem"
+        if not enc.exists():
+            enc.write_bytes(ec.generate_private_key(ec.SECP256R1()).private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()))
+        (keys / "sign.pem").chmod(0o644)
+        enc.chmod(0o644)
+
+  gsi-callback:
+    image: docker.io/library/nginx:stable-alpine
+    ports:
+      - "127.0.0.1:8083:80"
+    volumes:
+      - ./mock-ti-services/gematik-reference/callback-proxy.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      backend:
+        condition: service_healthy
     networks:
       - ti-network
 
@@ -58,6 +157,8 @@ services:
 
   llm:
     image: docker.io/ollama/ollama:latest
+    environment:
+      OLLAMA_KEEP_ALIVE: 15m
     ports:
       - "11434:11434"
     volumes:
@@ -120,5 +221,6 @@ services:
 volumes:
   ollama-data:
   pg-data:
+  gsi-keys:
 networks:
   ti-network:

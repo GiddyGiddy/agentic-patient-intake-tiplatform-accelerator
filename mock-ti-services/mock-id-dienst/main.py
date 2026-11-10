@@ -27,7 +27,9 @@ ALLOWED_REDIRECTS = set(
 )
 DEMO_PATIENTS = {"X110000001": "Erika Mustermann", "X110000002": "Max Mustermann"}
 CODE_TTL = 60
-TOKEN_TTL = 3600
+TOKEN_TTL = int(os.getenv("MOCK_ACCESS_TOKEN_TTL_S", "3600"))
+if TOKEN_TTL <= 0:
+    raise ValueError("MOCK_ACCESS_TOKEN_TTL_S must be a positive number of seconds")
 
 _private = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 _jwk = {

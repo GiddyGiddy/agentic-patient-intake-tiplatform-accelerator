@@ -11,13 +11,28 @@ import {
 } from "./auth/oidc";
 import { t } from "./i18n";
 import { resetSession } from "./services/api";
+import { config } from "./config";
+import * as reference from "./auth/reference";
 
 export default function App() {
-  const [session, setSession] = useState(getSession);
-  const [processing, setProcessing] = useState(hasCallbackParams);
+  const [session, setSession] = useState(() => config.referenceLogin ? null : getSession());
+  const [processing, setProcessing] = useState(() => config.referenceLogin || hasCallbackParams());
   const [notice, setNotice] = useState(null);
 
   useEffect(() => {
+    if (config.referenceLogin) {
+      reference.getSession()
+        .then((current) => {
+          if (!current || sessionStorage.getItem("intake.referenceSubject") !== current.sub) {
+            clearSession();
+          }
+          if (current) sessionStorage.setItem("intake.referenceSubject", current.sub);
+          setSession(current);
+        })
+        .catch(() => setNotice({ type: "error", text: t("auth.failed") }))
+        .finally(() => setProcessing(false));
+      return;
+    }
     if (!hasCallbackParams()) return;
     completeLogin()
       .then(setSession)
@@ -43,7 +58,17 @@ export default function App() {
     } catch {
       // best effort: the server session expires on its own
     }
-    logout();
+    if (config.referenceLogin) {
+      try {
+        await reference.logout();
+        clearSession();
+        setSession(null);
+      } catch {
+        setNotice({ type: "error", text: t("auth.failed") });
+      }
+    } else {
+      logout();
+    }
   }
   useEffect(() => {
     if (!expiresAt) return undefined;
@@ -74,9 +99,10 @@ export default function App() {
           </p>
         )}
         {session ? (
-          <Chat token={session.accessToken} onUnauthorized={expire} />
+          <Chat token={session.accessToken} onUnauthorized={expire}
+            referenceMockEpa={config.referenceLogin && session.mockEpaAvailable === true} />
         ) : (
-          <LoginScreen onLogin={login} busy={processing} />
+          <LoginScreen onLogin={config.referenceLogin ? reference.login : login} busy={processing} />
         )}
       </main>
       <footer className="footer">{t("app.demoNote")}</footer>

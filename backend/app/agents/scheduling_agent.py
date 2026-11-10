@@ -1,5 +1,7 @@
 ﻿import logging
+import re
 from datetime import datetime, timedelta, timezone
+from itertools import islice
 
 import requests
 from fhirpy import SyncFHIRClient
@@ -7,6 +9,7 @@ from fhirpy.base.exceptions import AuthorizationError, BaseFHIRError, ForbiddenE
 
 from app.agents.state import IntakeState
 from app.core.audit import audit
+from app.core.epa_client import KVNR_IDENTIFIER_SYSTEM
 from config import settings
 
 log = logging.getLogger(__name__)
@@ -33,15 +36,35 @@ def _find_free_slot(client: SyncFHIRClient, earliest: datetime):
     return slots[0] if slots else None
 
 
-def _patient_actor(client: SyncFHIRClient, patient_id: str) -> dict:
-    """Links the Appointment to the KIS Patient when it exists (HAPI enforces referential integrity)."""
-    actor = {"display": f"Patient {patient_id}"}
-    try:
-        if client.resources("Patient").search(_id=patient_id).limit(1).fetch():
-            actor["reference"] = f"Patient/{patient_id}"
-    except Exception:
-        pass
-    return actor
+class PatientMappingError(Exception):
+    """A verified identity could not be linked uniquely to a KIS patient."""
+
+
+def _patient_actor(client: SyncFHIRClient, kvnr: str | None) -> dict:
+    if not isinstance(kvnr, str) or not re.fullmatch(r"[A-Z][0-9]{9}", kvnr):
+        raise PatientMappingError("PATIENT_IDENTITY_MISSING")
+
+    patients = client.resources("Patient").search(
+        identifier=f"{KVNR_IDENTIFIER_SYSTEM}|{kvnr}"
+    ).limit(2)
+    matches = list(islice(patients, 2))
+    if len(matches) != 1:
+        raise PatientMappingError("PATIENT_NOT_FOUND" if not matches else "PATIENT_AMBIGUOUS")
+    patient = matches[0]
+    identifiers = patient.get("identifier")
+    if (
+        not isinstance(patient.id, str)
+        or not re.fullmatch(r"[A-Za-z0-9.-]{1,64}", patient.id)
+        or not isinstance(identifiers, list)
+        or not any(
+            isinstance(item, dict)
+            and item.get("system") == KVNR_IDENTIFIER_SYSTEM
+            and item.get("value") == kvnr
+            for item in identifiers
+        )
+    ):
+        raise PatientMappingError("PATIENT_IDENTITY_MISMATCH")
+    return {"reference": f"Patient/{patient.id}"}
 
 
 def _book(state: IntakeState) -> IntakeState:
@@ -52,6 +75,7 @@ def _book(state: IntakeState) -> IntakeState:
     score = state.get("triage_score", "Grün")
     earliest = datetime.now(timezone.utc) + _EARLIEST.get(score, timedelta(days=2))
 
+    actor = _patient_actor(client, state.get("kvnr"))
     slot = _find_free_slot(client, earliest)
     if slot is not None:
         start, end = slot["start"], slot["end"]
@@ -68,9 +92,7 @@ def _book(state: IntakeState) -> IntakeState:
         "description": state.get("anamnesis_summary", "")[:200],
         "start": start,
         "end": end,
-        "participant": [
-            {"actor": _patient_actor(client, state["patient_id"]), "status": "accepted"}
-        ],
+        "participant": [{"actor": actor, "status": "accepted"}],
     }
     if slot_ref:
         data["slot"] = [slot_ref]
@@ -92,6 +114,8 @@ def _book(state: IntakeState) -> IntakeState:
 
 
 def _error_code(exc: Exception) -> str:
+    if isinstance(exc, PatientMappingError):
+        return str(exc)
     if isinstance(exc, requests.Timeout):
         return "GATEWAY_TIMEOUT"
     if isinstance(exc, (requests.ConnectionError, OSError)):
@@ -120,9 +144,15 @@ FALLBACK_MESSAGE = (
     "Sie können es auch später erneut versuchen."
 )
 
+PATIENT_MAPPING_MESSAGE = (
+    "Ihre Identität konnte nicht eindeutig einer Patientenakte zugeordnet werden. "
+    "Es wurde kein Termin gebucht. Bitte wenden Sie sich zur Terminvereinbarung an das Praxisteam."
+)
+
 
 def error_handler_node(state: IntakeState) -> IntakeState:
     """Controlled fallback: friendly message to the patient (no technical details), alert for the clinic IT."""
     code = state.get("scheduling_error", "UNKNOWN")
     audit("scheduling_failed", state["patient_id"], error=code, triage=state.get("triage_score"), alert=True)
-    return {"reply": FALLBACK_MESSAGE, "scheduling_failed": True, "next_agent": "END"}
+    message = PATIENT_MAPPING_MESSAGE if code.startswith("PATIENT_") else FALLBACK_MESSAGE
+    return {"reply": message, "scheduling_failed": True, "next_agent": "END"}

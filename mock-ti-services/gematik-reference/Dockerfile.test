@@ -1,0 +1,14 @@
+FROM docker.io/library/python:3.12-slim
+WORKDIR /tests
+COPY requirements-test.txt .
+ARG PIP_CERT
+RUN pip install --no-cache-dir -r requirements-test.txt
+ADD https://codeload.github.com/gematik/app-gemSekIdp/tar.gz/2908032fbfcbc185688f6d479cfe952d3708bfe8 /tmp/reference.tar.gz
+RUN echo "f68116860d324805b194a4d6fa48667e35b1548abed1774784cf54b916f668ad  /tmp/reference.tar.gz" | sha256sum -c - \
+    && mkdir -p /tests/fixtures \
+    && tar -xzf /tmp/reference.tar.gz --strip-components=6 -C /tests/fixtures \
+       app-gemSekIdp-2908032fbfcbc185688f6d479cfe952d3708bfe8/gsi-server/src/main/resources/keys/ref-gsi-sig-privkey.pem \
+    && rm /tmp/reference.tar.gz
+COPY test_rp_flow.py test_federation_chain.py ./
+USER 10001:10001
+CMD ["python", "test_rp_flow.py", "-v"]

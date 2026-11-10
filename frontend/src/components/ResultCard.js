@@ -7,7 +7,7 @@ function formatTime(iso) {
   return d.toLocaleString("de-DE", { dateStyle: "full", timeStyle: "short" });
 }
 
-export default function ResultCard({ result, onRestart }) {
+export default function ResultCard({ result, onRestart, mockEpa = false }) {
   const score = result.triage_score;
   return (
     <section className="card result" aria-labelledby="result-title">
@@ -30,9 +30,12 @@ export default function ResultCard({ result, onRestart }) {
       </dl>
       <h3>{t("result.anamnesis")}</h3>
       <p className="anamnesis-summary">{result.anamnesis_summary?.trim() || t("result.noAnamnesis")}</p>
+      {mockEpa && result.epa_status && result.epa_status !== "available" && (
+        <p role="status">{t("result.mockEpaIncomplete")}</p>
+      )}
       {result.medication_plan?.length > 0 && (
         <>
-          <h3>{t("result.medication")}</h3>
+          <h3>{t(mockEpa ? "result.mockMedication" : "result.medication")}</h3>
           <ul>
             {result.medication_plan.map((m) => (
               <li key={m}>{m}</li>
@@ -40,7 +43,9 @@ export default function ResultCard({ result, onRestart }) {
           </ul>
         </>
       )}
-      {result.kim_sent ? <p>{t("result.kim")}</p> : <p role="alert">{t("result.kimFailed")}</p>}
+      {result.kim_sent
+        ? <p>{t(mockEpa ? "result.mockKim" : "result.kim")}</p>
+        : <p role="alert">{t(mockEpa ? "result.mockKimFailed" : "result.kimFailed")}</p>}
       <button className="btn" onClick={onRestart}>
         {t("chat.restart")}
       </button>

@@ -14,8 +14,9 @@ async function request(token, method, path, body) {
       method,
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
+      credentials: config.referenceLogin ? "include" : "same-origin",
       body: body === undefined ? undefined : JSON.stringify(body),
     });
   } catch {

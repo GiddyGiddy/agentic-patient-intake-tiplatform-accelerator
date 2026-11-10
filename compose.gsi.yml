@@ -1,0 +1,199 @@
+# Optional reference server for isolated local interoperability experiments only.
+name: patient-intake-gsi-reference
+services:
+  gsi-server:
+    image: agentic-patient-intake-gematik-accelerator-gsi-server
+    build:
+      context: ./mock-ti-services/gematik-reference
+    environment:
+      GSI_FEDMASTER_MODE: local
+      GSI_SERVER_URL: http://127.0.0.1:8085
+      GSI_SERVER_URL_MTLS: http://127.0.0.1:8085
+      REQUEST_LOGGING_ENABLED: "false"
+      LOG_LEVEL_GEMATIK: WARN
+    ports:
+      - "127.0.0.1:8085:8085"
+      - "127.0.0.1:8185:8185"
+
+  gsi-rp-test:
+    profiles: ["test"]
+    image: patient-intake-gsi-rp-test
+    build:
+      context: ./mock-ti-services/gematik-reference
+      dockerfile: Dockerfile.test
+    network_mode: service:gsi-server
+    depends_on:
+      - gsi-server
+
+  gsi-fedmaster:
+    profiles: ["federation"]
+    image: patient-intake-gsi-fedmaster
+    build:
+      context: ./mock-ti-services/gematik-reference
+      args:
+        REFERENCE_MODULE: gsi-fedmaster
+    environment:
+      REQUEST_LOGGING_ENABLED: "false"
+      LOG_LEVEL_GEMATIK: WARN
+    ports:
+      - "127.0.0.1:8083:8083"
+      - "127.0.0.1:8183:8183"
+
+  gsi-fedmaster-rp:
+    profiles: ["federation-rp"]
+    image: patient-intake-gsi-fedmaster
+    environment:
+      FEDMASTER_RELYINGPARTYCONFIGS_0_ISSUER: http://127.0.0.1:8084
+      FEDMASTER_RELYINGPARTYCONFIGS_0_ORGANIZATIONNAME: local-test-rp
+      FEDMASTER_RELYINGPARTYCONFIGS_0_KEYCONFIG_FILENAME: keys/ref-gsi-es-sig-pubkey.pem
+      FEDMASTER_RELYINGPARTYCONFIGS_0_KEYCONFIG_KEYID: puk_fd_sig
+      FEDMASTER_RELYINGPARTYCONFIGS_0_KEYCONFIG_USE: sig
+      REQUEST_LOGGING_ENABLED: "false"
+      LOG_LEVEL_GEMATIK: WARN
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8183/actuator/health"]
+      interval: 3s
+      timeout: 2s
+      retries: 40
+
+  gsi-server-federated:
+    profiles: ["federation-rp"]
+    image: agentic-patient-intake-gematik-accelerator-gsi-server
+    network_mode: service:gsi-fedmaster-rp
+    environment:
+      GSI_FEDMASTER_MODE: remote
+      REQUEST_LOGGING_ENABLED: "false"
+      LOG_LEVEL_GEMATIK: WARN
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8185/actuator/health"]
+      interval: 3s
+      timeout: 2s
+      retries: 40
+    depends_on:
+      gsi-fedmaster-rp:
+        condition: service_healthy
+
+  gsi-rp-federated-test:
+    profiles: ["federation-rp"]
+    image: patient-intake-gsi-rp-test
+    network_mode: service:gsi-fedmaster-rp
+    environment:
+      GSI_FEDERATION_REMOTE: "true"
+    depends_on:
+      gsi-server-federated:
+        condition: service_healthy
+
+  gsi-browser-fedmaster:
+    profiles: ["browser"]
+    image: patient-intake-gsi-fedmaster
+    environment:
+      FEDMASTER_RELYINGPARTYCONFIGS_0_ISSUER: http://127.0.0.1:8084
+      FEDMASTER_RELYINGPARTYCONFIGS_0_ORGANIZATIONNAME: local-test-rp
+      FEDMASTER_RELYINGPARTYCONFIGS_0_KEYCONFIG_FILENAME: keys/ref-gsi-es-sig-pubkey.pem
+      FEDMASTER_RELYINGPARTYCONFIGS_0_KEYCONFIG_KEYID: puk_fd_sig
+      FEDMASTER_RELYINGPARTYCONFIGS_0_KEYCONFIG_USE: sig
+      REQUEST_LOGGING_ENABLED: "false"
+      LOG_LEVEL_GEMATIK: WARN
+    ports:
+      - "127.0.0.1:8085:8085"
+      - "127.0.0.1:8000:8084"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8183/actuator/health"]
+      interval: 3s
+      timeout: 2s
+      retries: 40
+
+  gsi-browser-server:
+    profiles: ["browser"]
+    image: agentic-patient-intake-gematik-accelerator-gsi-server
+    network_mode: service:gsi-browser-fedmaster
+    environment:
+      GSI_FEDMASTER_MODE: remote
+      REQUEST_LOGGING_ENABLED: "false"
+      LOG_LEVEL_GEMATIK: WARN
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8185/actuator/health"]
+      interval: 3s
+      timeout: 2s
+      retries: 40
+    depends_on:
+      gsi-browser-fedmaster:
+        condition: service_healthy
+
+  gsi-browser-keys:
+    profiles: ["browser"]
+    image: patient-intake-gsi-rp-test
+    user: "0:0"
+    volumes:
+      - gsi-browser-keys:/keys
+    entrypoint: ["python", "-c"]
+    command:
+      - |
+        from pathlib import Path
+        from cryptography.hazmat.primitives.asymmetric import ec
+        from cryptography.hazmat.primitives import serialization
+        keys = Path("/keys")
+        (keys / "sign.pem").write_bytes(Path("/tests/fixtures/ref-gsi-sig-privkey.pem").read_bytes())
+        enc = keys / "enc.pem"
+        if not enc.exists():
+            enc.write_bytes(ec.generate_private_key(ec.SECP256R1()).private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()))
+        (keys / "sign.pem").chmod(0o644)
+        enc.chmod(0o644)
+
+  gsi-browser-backend:
+    profiles: ["browser"]
+    build:
+      context: ./backend
+    image: patient-intake-reference-backend
+    network_mode: service:gsi-browser-fedmaster
+    environment:
+      DATABASE_URL: sqlite:////tmp/reference-intake.db
+      REFERENCE_RP_ENABLED: "true"
+      REFERENCE_BFF_ENABLED: "true"
+      REFERENCE_RP_SIGNING_KEY_FILE: /keys/sign.pem
+      REFERENCE_RP_ENCRYPTION_KEY_FILE: /keys/enc.pem
+      REFERENCE_FRONTEND_ORIGIN: http://127.0.0.1:3000
+      CORS_ORIGINS: http://127.0.0.1:3000
+      LLM_BASE_URL: ""
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8084", "--no-access-log"]
+    volumes:
+      - gsi-browser-keys:/keys:ro
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import httpx; from app.core.reference_trust import resolve_reference_provider; resolve_reference_provider(httpx.Client(trust_env=False)); httpx.get('http://127.0.0.1:8084/health', timeout=3).raise_for_status()\""]
+      interval: 5s
+      timeout: 15s
+      retries: 12
+    depends_on:
+      gsi-browser-keys:
+        condition: service_completed_successfully
+      gsi-browser-server:
+        condition: service_healthy
+
+  gsi-browser-callback:
+    profiles: ["browser"]
+    image: docker.io/library/nginx:stable-alpine
+    ports:
+      - "127.0.0.1:8083:80"
+    volumes:
+      - ./mock-ti-services/gematik-reference/callback-proxy.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      gsi-browser-backend:
+        condition: service_healthy
+
+  gsi-browser-frontend:
+    profiles: ["browser"]
+    image: patient-intake-reference-frontend
+    build:
+      context: ./frontend
+      args:
+        REACT_APP_API_URL: http://127.0.0.1:8000
+        REACT_APP_REFERENCE_LOGIN: "true"
+    ports:
+      - "127.0.0.1:3000:80"
+    volumes:
+      - ./frontend/nginx.reference-localhost.conf:/etc/nginx/conf.d/reference-localhost.conf:ro
+    depends_on:
+      - gsi-browser-callback
+
+volumes:
+  gsi-browser-keys:

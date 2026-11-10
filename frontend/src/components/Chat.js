@@ -5,6 +5,7 @@ import { useTypewriter } from "../hooks/useTypewriter";
 import ConsentDialog from "./ConsentDialog";
 import EmergencyBanner from "./EmergencyBanner";
 import ResultCard from "./ResultCard";
+import { config } from "../config";
 
 const KEY = "intake.chat";
 const EMPTY = { messages: [], result: null, consent: false, pending: null, declined: false };
@@ -36,7 +37,7 @@ function Message({ msg }) {
   );
 }
 
-export default function Chat({ token, onUnauthorized }) {
+export default function Chat({ token, onUnauthorized, referenceMockEpa = false }) {
   const [state, setState] = useState(load);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -132,7 +133,7 @@ export default function Chat({ token, onUnauthorized }) {
 
       {consent && (
         <div className="consent-status">
-          <span>{t("consent.status.granted")}</span>
+          <span>{t(referenceMockEpa ? "consent.status.mockGranted" : "consent.status.granted")}</span>
           <button className="btn btn-link" onClick={revoke}>
             {t("consent.revoke")}
           </button>
@@ -175,10 +176,11 @@ export default function Chat({ token, onUnauthorized }) {
       )}
 
       {pending && !declined && !loading && (
-        <ConsentDialog message={result?.iam_message} onDecision={decide} />
+        <ConsentDialog message={result?.iam_message} onDecision={decide}
+          epaUnavailable={config.referenceLogin && !referenceMockEpa} mockEpa={referenceMockEpa} />
       )}
 
-      {done && <ResultCard result={result} onRestart={restart} />}
+      {done && <ResultCard result={result} onRestart={restart} mockEpa={referenceMockEpa} />}
 
       {showInput && (
         <form className="composer" onSubmit={submit}>

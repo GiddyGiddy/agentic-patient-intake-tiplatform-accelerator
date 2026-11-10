@@ -3,7 +3,7 @@ import logging
 
 from app.agents import intake_agent, kim_agent, scheduling_agent
 from app.core import audit as audit_mod
-from tests.test_scheduling_agent import FakeClient, FakeResource
+from tests.test_scheduling_agent import FakeClient, FakeResource, KVNR
 
 
 def test_llm_followup_question_is_used_when_anamnesis_incomplete(monkeypatch):
@@ -41,9 +41,9 @@ def test_kim_failure_does_not_fail_the_run(monkeypatch):
 def test_appointment_references_existing_patient(monkeypatch):
     client = FakeClient([FakeResource(id="s1", start="2030-01-01T10:00:00Z", end="2030-01-01T10:20:00Z")])
     monkeypatch.setattr(scheduling_agent, "SyncFHIRClient", lambda url, **kw: client)
-    scheduling_agent.scheduling_node({"patient_id": "X1", "triage_score": "Gelb"})
+    scheduling_agent.scheduling_node({"patient_id": "X1", "kvnr": KVNR, "triage_score": "Gelb"})
     actor = client.created[0]["participant"][0]["actor"]
-    assert actor["reference"] == "Patient/X1"
+    assert actor["reference"] == "Patient/kis-p1"
 
 
 def test_audit_event_is_json_and_pseudonymised(capsys, monkeypatch):
