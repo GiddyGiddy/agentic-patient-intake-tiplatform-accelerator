@@ -1,7 +1,17 @@
 # Patient intake and agent sequence
 
-This sequence documents the implemented patient flow. The mock services are development
-substitutes; production endpoints must be configured for the real IdP and TI services.
+This sequence documents the prototype patient flow using synthetic data and mock
+services. Real ePA authorization and production TI integration are not implemented;
+changing endpoints alone does not make the prototype production-ready.
+
+The diagram shows the separate mock OIDC login flow, used by the staging overlay.
+The default local Compose stack instead uses the reference Federation BFF login:
+the backend resolves the pinned test trust chain, starts PAR with server-side PKCE,
+and exchanges the callback code. It validates the encrypted signed ID token before
+creating an in-memory HttpOnly cookie session. The browser does not receive the
+reference token. A local-only switch permits explicit simulated consent and reads
+from the mock ePA without a bearer token; neither the login nor that consent grants
+access to a real ePA. Staging does not use this reference BFF.
 
 ## Login, intake, consent, booking, and KIM
 
@@ -10,7 +20,7 @@ sequenceDiagram
     autonumber
     actor Patient
     participant UI as Frontend (React)
-    participant IDP as Gesundheits-ID / mock-id-dienst
+    participant IDP as mock-id-dienst
     participant API as FastAPI
     participant DB as PostgreSQL
     participant Graph as LangGraph shared state
@@ -27,7 +37,7 @@ sequenceDiagram
 
     Patient->>UI: Start sign-in
     UI->>IDP: OIDC Authorization Code + PKCE
-    IDP-->>Patient: Authenticate (mock or real IdP)
+    IDP-->>Patient: Authenticate with mock IdP
     IDP-->>UI: Redirect with authorization code
     UI->>IDP: Exchange code + PKCE verifier
     IDP-->>UI: Access token (JWT)
@@ -72,12 +82,12 @@ sequenceDiagram
                 API->>Graph: Invoke again with stored triage + consent + current bearer token
                 Graph->>Consent: Entry routes directly to ConsentAgent
                 Consent->>EPA: GET MedicationStatement, AllergyIntolerance, Condition by KVNR identifier
-                Note over EPA,Gateway: EPA_BASE_URL points to the mock gateway in dev and to the configured TI endpoint in production.
+                Note over EPA,Gateway: EPA_BASE_URL points to the mock gateway in this flow.
                 EPA->>Gateway: FHIR request with patient bearer token
                 Gateway->>KIS: Forward to HAPI FHIR (mock ePA/KIS)
                 KIS-->>Gateway: FHIR Bundles
                 Gateway-->>EPA: FHIR Bundle
-                EPA-->>Consent: Medication, allergy, condition data; per-resource read errors
+                EPA-->>Consent: Medication, allergy, condition data and per-resource read errors
                 Consent-->>Graph: ePA context + epa_status + next_agent=SchedulingAgent
                 Graph->>Scheduling: Route to SchedulingAgent
                 Scheduling->>KIS: Search Patient by verified KVNR identifier
@@ -143,10 +153,12 @@ Agents do not call each other directly. LangGraph passes partial updates to one 
 | ErrorHandler | `reply`, `scheduling_failed`, `next_agent` | API/frontend |
 | KIMAgent | `letter`, `kim_sent`, `next_agent` | API/session and response |
 
-The access token and KVNR are internal graph fields. Neither is returned
-to the frontend or persisted in the session. ePA and KIS patient searches use the KVNR FHIR identifier
-(`http://fhir.de/sid/gkv/kvid-10|<KVNR>`); the gateway forwards the bearer token and adds its
-simulated institutional SMC-B assertion. The backend persists the conversation, consent, and
+The access token and KVNR are internal graph fields. In the mock OIDC flow, the browser
+receives the mock access token and sends it to the API; it is not returned in the graph
+response or persisted in the session. In the reference BFF flow, no reference token is
+passed to the graph or gateway. ePA and KIS patient searches use the KVNR FHIR identifier
+(`http://fhir.de/sid/gkv/kvid-10|<KVNR>`); the mock gateway forwards a bearer token when
+present and adds its simulated institutional SMC-B assertion. The backend persists the conversation, consent, and
 final result in PostgreSQL; the graph's working state is not itself the durable session.
 Scheduling requires exactly one KIS Patient with the matching identifier and a valid FHIR id.
 Missing or ambiguous matches result in no appointment and a request to contact the practice;
@@ -162,10 +174,9 @@ that a real provider has authorized or implemented the same identity-resolution 
   Patient, Slot, MedicationStatement, AllergyIntolerance, and Condition test data.
 - **mock-kim-cm (:2525):** accepts SMTP for development and logs captured test messages; it is
   not a production KIM client module and does not deliver through the TI.
-- **Production compose:** does not include these mocks. Set the IdP, ePA/FHIR gateway, KIM-CM,
-  TLS, and SMC-B configuration to real operator-provided values before any real clinical use.
-  The production IdP must provide an authorized `kvnr` claim; without it the ePA client makes no
-  FHIR request and scheduling continues with an explicit `missing_kvnr` ePA status.
+- **Production compose:** does not include these mocks. Real clinical use requires more than
+  configuring operator-provided endpoints, TLS and credentials: real authorization,
+  integration, security and clinical validation remain open.
 
 The current consent endpoint records the authenticated user's boolean decision with a TTL; it
 does not launch a separate Gesundheits-ID consent or MFA ceremony. The current backend also does
