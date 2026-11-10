@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 
 from app.agents.consent_agent import IAM_MESSAGE
 from app.agents.graph import intake_graph
+from app.agents.intake_agent import REPEATED_REPLY, _keyword_score
 from app.core.audit import audit
 from app.core.security import _bearer, get_current_user
 from app.core.session import IntakeSession, store
@@ -29,6 +30,7 @@ def _view(session: IntakeSession, reply: str | None = None, iam_message: str | N
     r = session.result
     return {
         "reply": reply,
+        "intake_stopped": bool(r.get("intake_stopped")),
         "triage_score": session.triage_score,
         "anamnesis_summary": session.anamnesis_summary,
         "iam_required": waiting,
@@ -47,6 +49,7 @@ def _run(sub: str, token: str, session: IntakeSession) -> dict:
     state = {
         "patient_id": sub,
         "messages": list(session.messages),
+        "intake_questions": dict(session.result.get("intake_questions", {})),
         "consent_granted": session.consent_active,
         "access_token": token,
     }
@@ -63,6 +66,14 @@ def _run(sub: str, token: str, session: IntakeSession) -> dict:
 
     session.triage_score = result.get("triage_score") or session.triage_score
     session.anamnesis_summary = result.get("anamnesis_summary") or session.anamnesis_summary
+    if result.get("intake_stopped"):
+        session.result["intake_stopped"] = True
+    elif session.triage_score == "Rot":
+        session.result.pop("intake_stopped", None)
+    if not session.triage_score and result.get("next_agent") == "END" and result.get("reply"):
+        questions = dict(session.result.get("intake_questions", {}))
+        questions[str(len(session.messages))] = result["reply"]
+        session.result["intake_questions"] = questions
     for key in ("appointment_id", "slot_start", "kim_sent", "medication_plan", "epa_available"):
         if key in result:
             session.result[key] = result[key]
@@ -88,12 +99,16 @@ def chat(
     with store.locked(sub) as session:
         if session.completed:
             raise HTTPException(409, "Die Aufnahme ist bereits abgeschlossen.")
+        if session.result.get("intake_stopped") and _keyword_score(" ".join([*session.messages, req.message])) != "Rot":
+            return _view(session, REPEATED_REPLY)
         if len(session.messages) >= settings.max_session_messages:
             raise HTTPException(409, "Maximale Gesprächslänge erreicht.")
         session.messages.append(req.message)
         audit("chat_message", sub, count=len(session.messages))
         if session.triage_score and not session.consent_active:
-            # intake is finished and waiting for consent: do not re-run the intake
+            if session.triage_score != "Rot" and _keyword_score(" ".join(session.messages)) == "Rot":
+                return _run(sub, _token(creds), session)
+            # Intake is finished and waiting for consent.
             return _view(session)
         return _run(sub, _token(creds), session)
 

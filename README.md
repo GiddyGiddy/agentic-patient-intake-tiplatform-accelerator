@@ -1,6 +1,12 @@
 # Agentic Patient Intake 
 
-Agentic AI patient intake on the Telematikinfrastruktur (TI): structured anamnesis, Manchester triage, ePA consent, FHIR appointment booking in the KIS and a KIM letter to the referring doctor. Built with React, FastAPI, LangGraph, PostgreSQL and a local LLM. Runs **on-premise** with Podman; the TI services(ti-gateway, KIM-CM,Id-services) are simulated by local mocks for development and end-to-end tests.
+Agentic AI patient intake prototype on the Telematikinfrastruktur (TI): anamnesis, experimental urgency labels, ePA consent, FHIR appointment booking in the KIS and a KIM letter to the referring doctor. Built with React, FastAPI, LangGraph, PostgreSQL and a local LLM. Runs **on-premise** with Podman; the TI services (ti-gateway, KIM-CM, ID services) are simulated by local mocks for development and end-to-end tests.
+
+**Demo only: do not use for patient care or enter real health data.** The urgency rules,
+interview and model have not been clinically validated and do not implement a validated
+Manchester Triage System. Keyword matching misses emergencies and can flag negated or
+historical symptoms. Clinical review, a representative clinician-labelled evaluation and
+appropriate regulatory assessment are required before any clinical use.
 
 ## Current status
 
@@ -29,7 +35,7 @@ The backend, database and LLM run in the clinic's own data center because the da
 | Frontend | React 18, nginx | On-premise | – |
 | Backend | FastAPI, LangGraph, SQLAlchemy | On-premise | – |
 | Database | PostgreSQL 16 (only persistent store) | On-premise | – |
-| LLM | Ollama or Foundry Local (local, rule-based fallback) | On-premise | – |
+| LLM | Ollama or Foundry Local | On-premise | – |
 | Gesundheits-ID (OIDC) | OpenID Connect / OAuth2 | TI | `mock-id-dienst` :8081 |
 | TI gateway / Konnektor (HSM-B / SMC-B) | Reverse proxy, signs requests, adds Telematik-ID | TI | `mock-ti-gateway` :8082 |
 | ePA + KIS (FHIR / ISiK) | HAPI FHIR | TI / clinic | `mock-kis-fhir` :8080 (+ `mock-kis-seed`) |
@@ -51,7 +57,7 @@ podman compose up --build
 | Mock KIM-CM (SMTP) | localhost:2525 |
 | LLM (Ollama) | http://localhost:11434 (`podman compose exec llm ollama pull llama3.2:3b`) |
 
-Demo patients: `X110000001` (two active medications in the ePA), `X110000002` (none). Without a reachable LLM the intake agent uses a rule-based fallback. On Windows, use `127.0.0.1` instead of `localhost` for published database ports.
+Demo patients: `X110000001` (two active medications in the ePA), `X110000002` (none). If the LLM is unavailable, the prototype does not complete a non-emergency assessment or assign a fallback urgency. Existing red-keyword alerts do not wait for the LLM. On Windows, use `127.0.0.1` instead of `localhost` for published database ports.
 
 All environments default to `llama3.2:3b` (the development `.env`, the Compose fallback, the backend default and
 `deploy/prod.env.example`). To evaluate another locally installed
@@ -59,7 +65,7 @@ Ollama model, set `LLM_MODEL` in the shell before starting or recreating the bac
 PowerShell, for example, use `$env:LLM_MODEL = "<model-name>"` and then
 `podman compose up -d --no-build backend`. Changing the shell variable does not update an
 already running container. Model output and triage must be evaluated using synthetic data;
-neither the model nor the rule-based fallback is validated for clinical use.
+neither the model nor the keyword rules are validated for clinical use.
 
 ### Compare local models with synthetic data
 
@@ -132,7 +138,7 @@ template KIM letter, with a warning in the backend logs.
 ## Agent flow
 
 ```
-POST /api/chat → intake_agent (anamnesis, Manchester triage)
+POST /api/chat → intake_agent (anamnesis, experimental urgency labels)
       → consent_agent (stops until consent is granted)
       → scheduling_agent (FHIR Slot + Appointment in the KIS)
       → kim_agent (Arztbrief + triage.json → KIM outbox) → END
@@ -140,6 +146,11 @@ POST /api/chat → intake_agent (anamnesis, Manchester triage)
 ```
 
 - Consent, triage and conversation are held **server-side** per patient; the client cannot set them.
+- The appointment result displays the agent's anamnesis summary returned by the server, or indicates when it is unavailable.
+- Intake follow-up questions are retained with the patient's answers in the short-lived server-side session so the summary can interpret answers in context. The original question-and-answer record accompanies the generated summary for review; if the LLM cannot provide a summary, the result explicitly says so. Generated text can omit or misstate details, is not a verified clinical assessment, and needs clinician review.
+- An invalid or unavailable LLM follow-up or urgency response, or a still-incomplete interview at the question limit, stops automatic completion and asks the user to contact the practice. Strict response validation checks structure, not medical correctness. Existing red keywords return an alert without an LLM call. This is not a comprehensive or clinically validated emergency detector.
+- Repeated follow-up questions are checked against the recorded conversation using normalized text and a conservative similarity heuristic. The model gets one chance to ask a different question; if it fails, the interview stops without an urgency score and must be restarted. Red-keyword messages submitted through the API can still trigger an emergency alert. This cannot reliably detect all paraphrases and may occasionally flag different questions as similar.
+- KIM `triage.json` now uses `triage_system: "unvalidated-prototype"` rather than claiming Manchester; downstream consumers must not interpret it as a validated triage assessment.
 - The ePA medication plan is read only after consent, with the patient's Gesundheits-ID token.
 - Red/orange patients get acute slots, green patients standard slots.
 - KIS/gateway calls use a connect/read timeout (`FHIR_CONNECT_TIMEOUT_S`, `FHIR_READ_TIMEOUT_S`). Failures are mapped to `GATEWAY_TIMEOUT`, `GATEWAY_CONNECTION_FAILED`, `GATEWAY_AUTH_ERROR` or `GATEWAY_ERROR`; the `error_handler` node writes an alerting audit event (`scheduling_failed`), shows the patient a neutral German fallback message (no stack trace) and ends the run. The API response then has `scheduling_failed: true`.
@@ -158,6 +169,34 @@ All endpoints require the Gesundheits-ID bearer token.
 | `GET /health` | Status including database reachability (503 if the DB is down). |
 
 Errors: `502` TI service (KIS/ePA) unreachable (retry is safe), `409` intake already completed or none active, `422` message too long, `429` rate limit. A failed KIM hand-over does not fail the run; the response has `kim_sent: false` and the outbox retries.
+
+## Podman build behind a trusted TLS-inspecting proxy
+
+If pip reports `CERTIFICATE_VERIFY_FAILED` during the backend build, ask your
+IT team to configure and verify the organization's CA in the Podman VM. On a
+Podman WSL machine that already has the CA in its system bundle, build the
+backend without disabling TLS verification:
+
+```powershell
+podman build --volume /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem:/run/build-ca.pem:ro --build-arg PIP_CERT=/run/build-ca.pem -t agentic-patient-intake-gematik-accelerator-backend .\backend
+podman compose up -d --no-build --no-deps backend
+```
+
+The bundle path is inside the Podman VM and may differ on other setups. The CA
+bundle is mounted only during the build; the final image does not retain
+`PIP_CERT`. The normal `compose --build` command does not pass this build-only
+mount.
+
+For the local frontend, use the same bundle for npm and Alpine, then recreate
+only the frontend:
+
+```powershell
+podman build --volume /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem:/run/build-ca.pem:ro --build-arg NODE_EXTRA_CA_CERTS=/run/build-ca.pem --build-arg SSL_CERT_FILE=/run/build-ca.pem --build-arg REACT_APP_API_URL=http://localhost:8000 --build-arg REACT_APP_OIDC_ISSUER=http://localhost:8081 -t agentic-patient-intake-gematik-accelerator-frontend .\frontend
+podman compose up -d --no-build --no-deps frontend
+```
+
+If `BACKEND_PORT` is customized, use that port in `REACT_APP_API_URL`. These
+are local development URLs; production frontend URLs must match its deployment.
 
 ## Persistence (PostgreSQL)
 
