@@ -3,6 +3,7 @@ import os
 import pytest
 
 from app.core import db
+from app.core.epa_client import EPAReadResult
 from app.core.session import store
 from config import settings
 
@@ -23,5 +24,9 @@ def no_llm_no_auth(monkeypatch):
     monkeypatch.setattr(settings, "llm_base_url", "")
     monkeypatch.setattr(settings, "auth_disabled", True)
     monkeypatch.setattr(
-        "app.agents.consent_agent.fetch_medication_plan", lambda *a: (["Ramipril 5 mg"], True)
+        "app.agents.consent_agent.fetch_patient_summary",
+        lambda *args: EPAReadResult(
+            medication_plan=["Ramipril 5 mg"],
+            status="available",
+        ),
     )

@@ -36,9 +36,9 @@ sequenceDiagram
     UI->>API: POST /api/chat + Bearer access token
     API->>IDP: Resolve signing key from JWKS
     IDP-->>API: JWKS public key
-    API->>API: Verify JWT signature, issuer and audience and get sub
+    API->>API: Verify JWT signature, issuer, audience, sub and KVNR claim
     API->>DB: Load/create server-side session for sub
-    API->>Graph: Invoke state(patient_id, messages, consent, token)
+    API->>Graph: Invoke state(patient_id, kvnr, messages, consent, token)
     Graph->>Intake: Route to IntakeAgent
     Intake->>Intake: Keyword urgency check
     opt Follow-up or final summary/triage
@@ -71,14 +71,14 @@ sequenceDiagram
                 API->>DB: Store consent grant and token jti
                 API->>Graph: Invoke again with stored triage + consent + current bearer token
                 Graph->>Consent: Entry routes directly to ConsentAgent
-                Consent->>EPA: GET MedicationStatement?subject=Patient/{sub}
+                Consent->>EPA: GET MedicationStatement, AllergyIntolerance, Condition for Patient/{sub}
                 Note over EPA,Gateway: EPA_BASE_URL points to the mock gateway in dev and to the configured TI endpoint in production.
                 EPA->>Gateway: FHIR request with patient bearer token
                 Gateway->>KIS: Forward to HAPI FHIR (mock ePA/KIS)
-                KIS-->>Gateway: MedicationStatement Bundle
+                KIS-->>Gateway: FHIR Bundles
                 Gateway-->>EPA: FHIR Bundle
-                EPA-->>Consent: Medication plan (or unreachable result)
-                Consent-->>Graph: medication_plan + epa_available + next_agent=SchedulingAgent
+                EPA-->>Consent: Medication, allergy, condition data; per-resource read errors
+                Consent-->>Graph: ePA context + epa_status + next_agent=SchedulingAgent
                 Graph->>Scheduling: Route to SchedulingAgent
                 Scheduling->>Gateway: Search free FHIR Slot
                 Gateway->>KIS: GET Slot?status=free&start>=...
@@ -133,17 +133,18 @@ Agents do not call each other directly. LangGraph passes partial updates to one 
 
 | Producer | State fields written | Consumer |
 |---|---|---|
-| API | `patient_id`, `messages`, `consent_granted`, `access_token`; on resume, existing triage and summary | IntakeAgent or ConsentAgent |
+| API | `patient_id`, verified-token `kvnr`, `messages`, `consent_granted`, `access_token`; on resume, existing triage and summary | IntakeAgent or ConsentAgent |
 | IntakeAgent | `reply`, `anamnesis_summary`, `triage_score`, `next_agent` | ConsentAgent, or the API if the graph ends for a follow-up |
-| ConsentAgent | `iam_required`, `iam_message`; after consent, `medication_plan`, `epa_available`, `next_agent` | API/frontend while waiting; otherwise SchedulingAgent |
+| ConsentAgent | `iam_required`, `iam_message`; after consent, medication/allergy/condition context, `epa_status`, `epa_available`, `next_agent` | API/frontend while waiting; otherwise SchedulingAgent and KIMAgent |
 | SchedulingAgent | `appointment_id`, `slot_start`, `next_agent`; on failure `scheduling_error` | KIMAgent or ErrorHandler |
 | ErrorHandler | `reply`, `scheduling_failed`, `next_agent` | API/frontend |
 | KIMAgent | `letter`, `kim_sent`, `next_agent` | API/session and response |
 
-The access token is an internal graph field used for the ePA request. It is not returned
-to the frontend as part of the chat response. The backend persists the conversation,
-consent, and final result in PostgreSQL; the graph's working state is not itself the
-durable session.
+The access token and KVNR are internal graph fields used for the ePA request. Neither is returned
+to the frontend or persisted in the session. ePA searches use the KVNR FHIR identifier
+(`http://fhir.de/sid/gkv/kvid-10|<KVNR>`); the gateway forwards the bearer token and adds its
+simulated institutional SMC-B assertion. The backend persists the conversation, consent, and
+final result in PostgreSQL; the graph's working state is not itself the durable session.
 
 ## Development mocks and production boundary
 
@@ -151,13 +152,18 @@ durable session.
 - **mock-ti-gateway (:8082):** development proxy in front of HAPI; simulates TI gateway identity
   headers/signing. It is not a real Konnektor and does not provide production SMC-B security.
 - **mock-kis-fhir / HAPI (:8080):** serves the development FHIR resources, including seeded
-  Patient, Slot, and MedicationStatement test data.
+  Patient, Slot, MedicationStatement, AllergyIntolerance, and Condition test data.
 - **mock-kim-cm (:2525):** accepts SMTP for development and logs captured test messages; it is
   not a production KIM client module and does not deliver through the TI.
 - **Production compose:** does not include these mocks. Set the IdP, ePA/FHIR gateway, KIM-CM,
   TLS, and SMC-B configuration to real operator-provided values before any real clinical use.
+  The production IdP must provide an authorized `kvnr` claim; without it the ePA client makes no
+  FHIR request and scheduling continues with an explicit `missing_kvnr` ePA status.
 
 The current consent endpoint records the authenticated user's boolean decision with a TTL; it
 does not launch a separate Gesundheits-ID consent or MFA ceremony. The current backend also does
 not distinguish patient, MFA, and administrator roles. Do not treat the mock flow as production
-authorization or clinical triage.
+authorization or clinical triage. ePA resources are read independently. HTTP 401 and 403 are recorded
+distinctly per resource and do not block scheduling; 403 is not assumed to mean an ePA opt-out.
+Allergies and conditions remain separate from the symptom summary and triage score and are labeled
+as ePA data in the KIM letter.

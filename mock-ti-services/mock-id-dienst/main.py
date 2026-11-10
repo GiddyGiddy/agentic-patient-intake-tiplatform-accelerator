@@ -137,6 +137,7 @@ def confirm(
     code = secrets.token_urlsafe(32)
     CODES[code] = {
         "sub": kvnr,
+        "kvnr": kvnr,
         "challenge": code_challenge,
         "redirect_uri": redirect_uri,
         "client_id": client_id,
@@ -171,7 +172,14 @@ async def token(request: Request):
 
     now = int(time.time())
     access = jwt.encode(
-        {"iss": ISSUER, "aud": AUDIENCE, "sub": entry["sub"], "iat": now, "exp": now + TOKEN_TTL},
+        {
+            "iss": ISSUER,
+            "aud": AUDIENCE,
+            "sub": entry["sub"],
+            "kvnr": entry["kvnr"],
+            "iat": now,
+            "exp": now + TOKEN_TTL,
+        },
         _private,
         algorithm="RS256",
         headers={"kid": KID},

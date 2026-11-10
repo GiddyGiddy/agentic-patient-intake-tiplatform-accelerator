@@ -6,6 +6,8 @@ TRIAGE_LEVELS = ["Rot", "Orange", "Gelb", "Grün", "Blau"]
 
 class IntakeState(TypedDict, total=False):
     patient_id: str
+    # KVNR is taken from the verified Gesundheits-ID claim and used only for ePA FHIR searches.
+    kvnr: str
     messages: list[str]
     intake_questions: dict[str, str]  # question preceding each answer, keyed by zero-based answer index
     consent_granted: bool
@@ -14,6 +16,10 @@ class IntakeState(TypedDict, total=False):
 
     # ConsentAgent: data read from the ePA after consent
     medication_plan: list[str]
+    allergies: list[str]
+    conditions: list[str]
+    epa_errors: dict[str, str]
+    epa_status: str
     epa_available: bool
 
     # IntakeAgent

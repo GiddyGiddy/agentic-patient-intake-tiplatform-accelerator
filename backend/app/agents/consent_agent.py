@@ -1,6 +1,6 @@
 from app.agents.state import IntakeState
 from app.core.audit import audit
-from app.core.epa_client import fetch_medication_plan
+from app.core.epa_client import fetch_patient_summary
 
 
 IAM_MESSAGE = "Bitte geben Sie den Zugriff auf Ihre ePA-Daten über Ihre Gesundheits-ID frei."
@@ -13,12 +13,26 @@ def consent_node(state: IntakeState) -> IntakeState:
     """
     if state.get("consent_granted"):
         pid = state.get("patient_id", "")
-        meds, reachable = fetch_medication_plan(pid, state.get("access_token"))
-        audit("epa_read", pid, resource="MedicationStatement", count=len(meds), reachable=reachable)
+        summary = fetch_patient_summary(state.get("kvnr"), state.get("access_token"))
+        audit(
+            "epa_read",
+            pid,
+            resource="summary",
+            medication_count=len(summary.medication_plan),
+            allergy_count=len(summary.allergies),
+            condition_count=len(summary.conditions),
+            status=summary.status,
+            errors=summary.errors,
+            reachable=summary.available,
+        )
         return {
             "iam_required": False,
-            "medication_plan": meds,
-            "epa_available": reachable,
+            "medication_plan": summary.medication_plan,
+            "allergies": summary.allergies,
+            "conditions": summary.conditions,
+            "epa_errors": summary.errors,
+            "epa_status": summary.status,
+            "epa_available": summary.available,
             "next_agent": "SchedulingAgent",
         }
     return {

@@ -72,16 +72,32 @@ def test_client_cannot_inject_consent_or_triage(client, stub_ti):
     assert stub_ti == []
 
 
-def test_consent_grant_resumes_through_epa_scheduling_and_kim(client, stub_ti):
+def test_consent_grant_resumes_through_epa_scheduling_and_kim(client, stub_ti, monkeypatch):
+    from app.agents import consent_agent
+    from app.core.epa_client import EPAReadResult
+
+    seen_kvnrs = []
+    monkeypatch.setattr(
+        consent_agent,
+        "fetch_patient_summary",
+        lambda kvnr, token: seen_kvnrs.append(kvnr)
+        or EPAReadResult(medication_plan=["Ramipril 5 mg"], status="available"),
+    )
     _chat(client, "Ich habe starke Brustschmerzen")
-    body = client.post("/api/consent", json={"granted": True}).json()
+    body = client.post(
+        "/api/consent",
+        json={"granted": True, "kvnr": "attacker-controlled-value"},
+    ).json()
     assert stub_ti == ["scheduling", "kim"]
+    assert seen_kvnrs == [settings.dev_kvnr]
     assert body["appointment_id"] == "a1"
     assert body["kim_sent"] is True
     assert body["iam_required"] is False
     assert body["consent_granted"] is True
+    assert body["epa_status"] == "available"
     assert body["medication_plan"] == ["Ramipril 5 mg"]
     assert body["epa_available"] is True
+    assert "kvnr" not in body
 
 
 def test_consent_grant_is_idempotent_after_completion(client, stub_ti):
