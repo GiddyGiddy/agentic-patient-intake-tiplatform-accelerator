@@ -64,6 +64,15 @@ On `staging`, `deploy.sh` also starts the stubs from `compose.staging.yml` (mock
 FHIR with seed data, mock KIM) and points the backend at them, so no real TI connection is needed. Set
 `STAGING_MOCKS=0` to use the real endpoints from `/etc/intake/staging.env` instead. `production` never starts stubs.
 
+When the staging overlay is active, Ollama keeps a model loaded for 15 minutes
+after its last use (subject to resource availability), and the mock IdP issues
+15-minute access tokens. Staging uses the browser's mock OIDC flow, not the
+local reference BFF. This does not extend an existing token or affect production.
+Publish and deploy an updated `mock-id-dienst` image as well as this Compose
+overlay; an older image ignores the token lifetime setting. Redeployment restarts
+the affected services, so users must sign in again and Ollama may need a cold load.
+`STAGING_MOCKS=0` omits this overlay and these settings.
+
 Notes:
 - The VM must be able to pull `nginx`, `postgres`, `ollama` and (staging) `hapiproject/hapi` from Docker Hub or a
   mirror, plus the GHCR images; already cached images are used if a pull fails.

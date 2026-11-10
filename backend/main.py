@@ -6,6 +6,8 @@ from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.endpoints import router
+from app.api.federation import router as federation_router
+from app.api.reference_auth import router as reference_auth_router
 from app.core import db
 from app.core.kim_outbox import retry_pending
 from app.core.session import store
@@ -42,9 +44,12 @@ app.add_middleware(
     allow_origins=[o.strip() for o in settings.cors_origins.split(",") if o.strip()],
     allow_methods=["GET", "POST", "DELETE"],
     allow_headers=["Authorization", "Content-Type"],
+    allow_credentials=True,
 )
 # The LangGraph workflow (app.agents.graph.intake_graph) is invoked in app/api/endpoints.py: POST /api/chat
 app.include_router(router, prefix="/api")
+app.include_router(federation_router)
+app.include_router(reference_auth_router)
 
 
 @app.get("/health")

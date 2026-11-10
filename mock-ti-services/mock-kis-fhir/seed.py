@@ -99,9 +99,23 @@ def condition(pid: str, rid: str, description: str) -> None:
     )
 
 
+def seed_reference_patient() -> None:
+    pid = "X110411675"
+    put(
+        "Patient",
+        pid,
+        {
+            "identifier": [{"system": KVNR_SYSTEM, "value": pid}],
+            "name": [{"family": "Testperson", "given": ["Alex"]}],
+        },
+    )
+    med(pid, "ref-110411675-med-1", "Ramipril 5 mg", "1-0-0")
+    allergy(pid, "ref-110411675-allergy-1", "Penicillin-Allergie (Exanthem)")
+    condition(pid, "ref-110411675-condition-1", "Arterielle Hypertonie")
+
+
 def main() -> None:
     wait_for_server()
-    # Patient ids equal the `sub` of the mock Gesundheits-ID tokens
     put(
         "Patient",
         "X110000001",
@@ -123,6 +137,7 @@ def main() -> None:
     allergy("X110000001", "allergy-1", "Penicillin-Allergie (Exanthem)")
     condition("X110000001", "condition-1", "Arterielle Hypertonie")
     # patient 2 intentionally has no medication plan
+    seed_reference_patient()
 
     base = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
     for i in range(1, 41):

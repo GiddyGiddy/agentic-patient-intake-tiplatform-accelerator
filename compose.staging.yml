@@ -8,6 +8,10 @@
 # staging env file can keep its placeholder hostnames.
 
 services:
+  llm:
+    environment:
+      OLLAMA_KEEP_ALIVE: "15m"
+
   # Extra TLS listeners for browser testing: UI on :3000, mock IdP on :8443.
   # STAGING_HOST = the address the browser uses (IP or DNS name of the VM); deploy.sh reads it from the env file.
   proxy:
@@ -40,6 +44,7 @@ services:
     image: ${REGISTRY}/mock-id-dienst:${IMAGE_TAG}
     restart: unless-stopped
     environment:
+      MOCK_ACCESS_TOKEN_TTL_S: "900"
       # redirect targets the browser login may return to (also drives the IdP's CORS allow-list)
       ALLOWED_REDIRECT_URIS: https://${STAGING_HOST:-localhost}/,https://${STAGING_HOST:-localhost}:3000/
     networks: [internal]

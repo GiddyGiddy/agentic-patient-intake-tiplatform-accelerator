@@ -8,6 +8,7 @@ COPY . .
 ARG REACT_APP_API_URL=http://localhost:8000
 ARG REACT_APP_OIDC_ISSUER=http://localhost:8081
 ARG REACT_APP_OIDC_CLIENT_ID=patient-intake-frontend
+ARG REACT_APP_REFERENCE_LOGIN=false
 RUN npm run build
 
 FROM docker.io/library/nginx:stable-alpine

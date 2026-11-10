@@ -28,3 +28,20 @@ test("reports grant, decline and Escape", async () => {
   expect(onDecision).toHaveBeenCalledTimes(3);
   expect(onDecision).toHaveBeenLastCalledWith(false);
 });
+
+test("reference mode explains and prevents unavailable ePA authorization", () => {
+  render(<ConsentDialog onDecision={jest.fn()} epaUnavailable />);
+  expect(screen.getByText(/separate ePA-Autorisierung nicht verfügbar/)).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Mit Gesundheits-ID freigeben" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Nicht freigeben" })).toHaveFocus();
+});
+
+test("mock consent clearly identifies the simulation and allows a decision", async () => {
+  const onDecision = jest.fn();
+  render(<ConsentDialog onDecision={onDecision} mockEpa message="Gesundheits-ID freigeben" />);
+  expect(screen.getByText(/keine echte ePA-Freigabe/)).toBeInTheDocument();
+  expect(screen.getByText(/Synthetische Medikationsdaten/)).toBeInTheDocument();
+  expect(screen.queryByText("Gesundheits-ID freigeben")).not.toBeInTheDocument();
+  await userEvent.click(screen.getByRole("button", { name: "Demo-Daten freigeben" }));
+  expect(onDecision).toHaveBeenCalledWith(true);
+});

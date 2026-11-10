@@ -3,6 +3,8 @@ import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import App from "./App";
 import * as oidc from "./auth/oidc";
+import * as reference from "./auth/reference";
+import { config } from "./config";
 
 jest.mock("./components/Chat", () => ({ token, onUnauthorized }) => (
   <div>
@@ -93,4 +95,37 @@ test("login button starts the OIDC flow", async () => {
   render(<App />);
   await userEvent.click(screen.getByRole("button", { name: "Mit Gesundheits-ID anmelden" }));
   expect(spy).toHaveBeenCalled();
+});
+
+test("reference login restores the BFF session without exposing a token", async () => {
+  config.referenceLogin = true;
+  const spy = jest.spyOn(reference, "getSession").mockResolvedValue({
+    sub: "reference-sub", expiresAt: Date.now() + 60_000,
+  });
+  try {
+    render(<App />);
+    expect(await screen.findByText("chat for")).toBeInTheDocument();
+    expect(screen.getByText(/reference-sub/)).toBeInTheDocument();
+    expect(sessionStorage.getItem("intake.session")).toBeNull();
+  } finally {
+    spy.mockRestore();
+    config.referenceLogin = false;
+  }
+});
+
+test("reference login clears chat belonging to a different subject", async () => {
+  config.referenceLogin = true;
+  sessionStorage.setItem("intake.referenceSubject", "previous-subject");
+  sessionStorage.setItem("intake.chat", "old chat");
+  const spy = jest.spyOn(reference, "getSession").mockResolvedValue({
+    sub: "new-subject", expiresAt: Date.now() + 60_000,
+  });
+  try {
+    render(<App />);
+    expect(await screen.findByText(/new-subject/)).toBeInTheDocument();
+    expect(sessionStorage.getItem("intake.chat")).toBeNull();
+  } finally {
+    spy.mockRestore();
+    config.referenceLogin = false;
+  }
 });

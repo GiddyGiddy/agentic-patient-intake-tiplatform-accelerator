@@ -71,6 +71,28 @@ test("emergency: banner, consent dialog, then server-side consent resumes and sh
   expect(screen.queryByLabelText("Ihre Nachricht")).not.toBeInTheDocument();
 });
 
+test("reference mock consent labels the simulation through the result", async () => {
+  sendChat.mockResolvedValueOnce(RED_PENDING);
+  setConsent.mockResolvedValueOnce(BOOKED);
+  render(<Chat onUnauthorized={jest.fn()} referenceMockEpa />);
+  await send("Brustschmerzen");
+  expect(await screen.findByText(/keine echte ePA-Freigabe/)).toBeInTheDocument();
+  await userEvent.click(screen.getByRole("button", { name: "Demo-Daten freigeben" }));
+  expect(await screen.findByText("Demo-Datenfreigabe erteilt")).toBeInTheDocument();
+  expect(screen.getByText("Synthetischer Medikationsplan aus dem ePA-Mock")).toBeInTheDocument();
+  expect(screen.getByText(/lokale KIM-Testmodul übergeben/)).toBeInTheDocument();
+  expect(setConsent).toHaveBeenCalledWith(undefined, true);
+});
+
+test("reference mock result reports incomplete ePA data", async () => {
+  sendChat.mockResolvedValueOnce(RED_PENDING);
+  setConsent.mockResolvedValueOnce({ ...BOOKED, epa_status: "partial", medication_plan: [] });
+  render(<Chat onUnauthorized={jest.fn()} referenceMockEpa />);
+  await send("Brustschmerzen");
+  await userEvent.click(await screen.findByRole("button", { name: "Demo-Daten freigeben" }));
+  expect(await screen.findByText(/ePA-Mock-Daten konnten nicht vollständig geladen werden/)).toBeInTheDocument();
+});
+
 test("a failed KIM hand-over is announced", async () => {
   sendChat.mockResolvedValueOnce(RED_PENDING);
   setConsent.mockResolvedValueOnce({ ...BOOKED, kim_sent: false });

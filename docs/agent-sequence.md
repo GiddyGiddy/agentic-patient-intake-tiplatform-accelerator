@@ -71,7 +71,7 @@ sequenceDiagram
                 API->>DB: Store consent grant and token jti
                 API->>Graph: Invoke again with stored triage + consent + current bearer token
                 Graph->>Consent: Entry routes directly to ConsentAgent
-                Consent->>EPA: GET MedicationStatement, AllergyIntolerance, Condition for Patient/{sub}
+                Consent->>EPA: GET MedicationStatement, AllergyIntolerance, Condition by KVNR identifier
                 Note over EPA,Gateway: EPA_BASE_URL points to the mock gateway in dev and to the configured TI endpoint in production.
                 EPA->>Gateway: FHIR request with patient bearer token
                 Gateway->>KIS: Forward to HAPI FHIR (mock ePA/KIS)
@@ -80,6 +80,9 @@ sequenceDiagram
                 EPA-->>Consent: Medication, allergy, condition data; per-resource read errors
                 Consent-->>Graph: ePA context + epa_status + next_agent=SchedulingAgent
                 Graph->>Scheduling: Route to SchedulingAgent
+                Scheduling->>KIS: Search Patient by verified KVNR identifier
+                KIS-->>Scheduling: Patient search result
+                Note over Scheduling,KIS: Missing, invalid, duplicate, or mismatched identities stop booking.
                 Scheduling->>Gateway: Search free FHIR Slot
                 Gateway->>KIS: GET Slot?status=free&start>=...
                 KIS-->>Gateway: Earliest matching Slot (or none)
@@ -140,11 +143,15 @@ Agents do not call each other directly. LangGraph passes partial updates to one 
 | ErrorHandler | `reply`, `scheduling_failed`, `next_agent` | API/frontend |
 | KIMAgent | `letter`, `kim_sent`, `next_agent` | API/session and response |
 
-The access token and KVNR are internal graph fields used for the ePA request. Neither is returned
-to the frontend or persisted in the session. ePA searches use the KVNR FHIR identifier
+The access token and KVNR are internal graph fields. Neither is returned
+to the frontend or persisted in the session. ePA and KIS patient searches use the KVNR FHIR identifier
 (`http://fhir.de/sid/gkv/kvid-10|<KVNR>`); the gateway forwards the bearer token and adds its
 simulated institutional SMC-B assertion. The backend persists the conversation, consent, and
 final result in PostgreSQL; the graph's working state is not itself the durable session.
+Scheduling requires exactly one KIS Patient with the matching identifier and a valid FHIR id.
+Missing or ambiguous matches result in no appointment and a request to contact the practice;
+the OIDC `sub` is not used as a KIS Patient id. This lookup is a prototype mapping, not proof
+that a real provider has authorized or implemented the same identity-resolution policy.
 
 ## Development mocks and production boundary
 

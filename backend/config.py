@@ -1,5 +1,6 @@
 ﻿from typing import Literal
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -12,6 +13,15 @@ class Settings(BaseSettings):
     auth_disabled: bool = False
     # Local-only demo identity used when authentication is explicitly disabled.
     dev_kvnr: str = "X110000001"
+
+    # Isolated reference-server interoperability only; never use for real patient data.
+    reference_rp_enabled: bool = False
+    reference_rp_signing_key_file: str = ""
+    reference_rp_encryption_key_file: str = ""
+    reference_bff_enabled: bool = False
+    reference_frontend_origin: str = "http://127.0.0.1:3000"
+    reference_mock_epa_enabled: bool = False
+    reference_demo_session_ttl_s: int = Field(default=0, ge=0, le=900)
 
     fhir_base_url: str = "http://mock-kis-fhir:8080/fhir"
     database_url: str = "postgresql+psycopg://intake:intake@postgres:5432/intake"

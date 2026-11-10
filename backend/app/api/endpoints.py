@@ -8,6 +8,7 @@ from app.agents.consent_agent import IAM_MESSAGE
 from app.agents.graph import intake_graph
 from app.agents.intake_agent import REPEATED_REPLY, _keyword_score
 from app.core.audit import audit
+from app.core.reference_mock import reference_mock_epa_available
 from app.core.security import _bearer, get_current_user
 from app.core.session import IntakeSession, store
 from config import settings
@@ -46,14 +47,16 @@ def _view(session: IntakeSession, reply: str | None = None, iam_message: str | N
     }
 
 
-def _run(sub: str, token: str, session: IntakeSession, kvnr: str | None = None) -> dict:
+def _run(sub: str, token: str, session: IntakeSession, kvnr: str | None = None, reference: bool = False) -> dict:
+    if reference and session.consent_active and not reference_mock_epa_available():
+        raise HTTPException(503, "Local mock ePA access is not available.")
     state = {
         "patient_id": sub,
         "kvnr": kvnr,
         "messages": list(session.messages),
         "intake_questions": dict(session.result.get("intake_questions", {})),
         "consent_granted": session.consent_active,
-        "access_token": token,
+        "access_token": "" if reference else token,
     }
     if session.triage_score:
         state["triage_score"] = session.triage_score
@@ -116,10 +119,10 @@ def chat(
         audit("chat_message", sub, count=len(session.messages))
         if session.triage_score and not session.consent_active:
             if session.triage_score != "Rot" and _keyword_score(" ".join(session.messages)) == "Rot":
-                return _run(sub, _token(creds), session, user.get("kvnr"))
+                return _run(sub, _token(creds), session, user.get("kvnr"), user.get("reference_session", False))
             # Intake is finished and waiting for consent.
             return _view(session)
-        return _run(sub, _token(creds), session, user.get("kvnr"))
+        return _run(sub, _token(creds), session, user.get("kvnr"), user.get("reference_session", False))
 
 
 @router.post("/consent")
@@ -130,6 +133,9 @@ def set_consent(
 ):
     """Records the patient's decision. A grant resumes the workflow (ePA read, booking, KIM)."""
     sub = user["sub"]
+    reference = user.get("reference_session", False)
+    if req.granted and reference and not reference_mock_epa_available():
+        raise HTTPException(503, "Local mock ePA access is not available.")
     if store.rate_limited(sub):
         raise HTTPException(429, "Zu viele Anfragen.")
     with store.locked(sub) as session:
@@ -142,8 +148,8 @@ def set_consent(
         if session.completed:
             return _view(session)
         session.grant(user.get("jti"))
-        audit("consent_granted", sub, ttl_s=settings.consent_ttl_s)
-        return _run(sub, _token(creds), session, user.get("kvnr"))
+        audit("consent_granted", sub, ttl_s=settings.consent_ttl_s, mock_epa=reference)
+        return _run(sub, _token(creds), session, user.get("kvnr"), reference)
 
 
 @router.delete("/session", status_code=204)

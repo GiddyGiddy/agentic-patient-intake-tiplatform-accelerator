@@ -5,6 +5,7 @@ fhirpy>=1.4
 httpx>=0.27
 pydantic-settings>=2.2
 pyjwt[crypto]>=2.8
+jwcrypto==1.5.7
 sqlalchemy>=2.0
 psycopg[binary]>=3.2
 alembic>=1.13

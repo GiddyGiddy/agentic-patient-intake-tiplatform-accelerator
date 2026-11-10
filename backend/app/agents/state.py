@@ -6,7 +6,7 @@ TRIAGE_LEVELS = ["Rot", "Orange", "Gelb", "Grün", "Blau"]
 
 class IntakeState(TypedDict, total=False):
     patient_id: str
-    # KVNR is taken from the verified Gesundheits-ID claim and used only for ePA FHIR searches.
+    # KVNR comes from the verified identity claim and is used for ePA and KIS patient lookup.
     kvnr: str
     messages: list[str]
     intake_questions: dict[str, str]  # question preceding each answer, keyed by zero-based answer index
@@ -38,7 +38,7 @@ class IntakeState(TypedDict, total=False):
     # SchedulingAgent
     appointment_id: Optional[str]
     slot_start: Optional[str]
-    scheduling_error: str  # GATEWAY_TIMEOUT | GATEWAY_CONNECTION_FAILED | GATEWAY_AUTH_ERROR | GATEWAY_ERROR
+    scheduling_error: str  # gateway or patient-identity mapping failure
     scheduling_failed: bool  # set by the ErrorHandler
 
     # KIMAgent
