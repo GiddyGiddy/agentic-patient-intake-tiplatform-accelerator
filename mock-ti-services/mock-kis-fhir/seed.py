@@ -7,6 +7,7 @@ import urllib.request
 from datetime import datetime, timedelta, timezone
 
 BASE = os.environ.get("FHIR_BASE_URL", "http://localhost:8080/fhir")
+KVNR_SYSTEM = "http://fhir.de/sid/gkv/kvid-10"
 
 
 def put(resource_type: str, rid: str, body: dict) -> None:
@@ -60,13 +61,67 @@ def med(pid: str, rid: str, name: str, dosage: str) -> None:
     )
 
 
+def allergy(pid: str, rid: str, description: str) -> None:
+    put(
+        "AllergyIntolerance",
+        rid,
+        {
+            "clinicalStatus": {
+                "coding": [
+                    {
+                        "system": "http://terminology.hl7.org/CodeSystem/allergyintolerance-clinical",
+                        "code": "active",
+                    }
+                ]
+            },
+            "code": {"text": description},
+            "patient": {"reference": f"Patient/{pid}"},
+        },
+    )
+
+
+def condition(pid: str, rid: str, description: str) -> None:
+    put(
+        "Condition",
+        rid,
+        {
+            "clinicalStatus": {
+                "coding": [
+                    {
+                        "system": "http://terminology.hl7.org/CodeSystem/condition-clinical",
+                        "code": "active",
+                    }
+                ]
+            },
+            "code": {"text": description},
+            "subject": {"reference": f"Patient/{pid}"},
+        },
+    )
+
+
 def main() -> None:
     wait_for_server()
     # Patient ids equal the `sub` of the mock Gesundheits-ID tokens
-    put("Patient", "X110000001", {"name": [{"family": "Mustermann", "given": ["Max"]}]})
-    put("Patient", "X110000002", {"name": [{"family": "Musterfrau", "given": ["Erika"]}]})
+    put(
+        "Patient",
+        "X110000001",
+        {
+            "identifier": [{"system": KVNR_SYSTEM, "value": "X110000001"}],
+            "name": [{"family": "Mustermann", "given": ["Max"]}],
+        },
+    )
+    put(
+        "Patient",
+        "X110000002",
+        {
+            "identifier": [{"system": KVNR_SYSTEM, "value": "X110000002"}],
+            "name": [{"family": "Musterfrau", "given": ["Erika"]}],
+        },
+    )
     med("X110000001", "med-1", "Ramipril 5 mg", "1-0-0")
     med("X110000001", "med-2", "Metformin 500 mg", "1-0-1")
+    allergy("X110000001", "allergy-1", "Penicillin-Allergie (Exanthem)")
+    condition("X110000001", "condition-1", "Arterielle Hypertonie")
     # patient 2 intentionally has no medication plan
 
     base = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)

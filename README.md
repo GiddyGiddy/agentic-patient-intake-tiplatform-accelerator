@@ -57,7 +57,7 @@ podman compose up --build
 | Mock KIM-CM (SMTP) | localhost:2525 |
 | LLM (Ollama) | http://localhost:11434 (`podman compose exec llm ollama pull llama3.2:3b`) |
 
-Demo patients: `X110000001` (two active medications in the ePA), `X110000002` (none). If the LLM is unavailable, the prototype does not complete a non-emergency assessment or assign a fallback urgency. Existing red-keyword alerts do not wait for the LLM. On Windows, use `127.0.0.1` instead of `localhost` for published database ports.
+Demo patients: `X110000001` (medications, an allergy, and a condition in the ePA), `X110000002` (no ePA entries). The mock Gesundheits-ID token contains a `kvnr` claim; ePA searches use it as a FHIR identifier, not as the internal session key. If the LLM is unavailable, the prototype does not complete a non-emergency assessment or assign a fallback urgency. Existing red-keyword alerts do not wait for the LLM. On Windows, use `127.0.0.1` instead of `localhost` for published database ports.
 
 All environments default to `llama3.2:3b` (the development `.env`, the Compose fallback, the backend default and
 `deploy/prod.env.example`). To evaluate another locally installed
@@ -151,7 +151,10 @@ POST /api/chat → intake_agent (anamnesis, experimental urgency labels)
 - An invalid or unavailable LLM follow-up or urgency response, or a still-incomplete interview at the question limit, stops automatic completion and asks the user to contact the practice. Strict response validation checks structure, not medical correctness. Existing red keywords return an alert without an LLM call. This is not a comprehensive or clinically validated emergency detector.
 - Repeated follow-up questions are checked against the recorded conversation using normalized text and a conservative similarity heuristic. The model gets one chance to ask a different question; if it fails, the interview stops without an urgency score and must be restarted. Red-keyword messages submitted through the API can still trigger an emergency alert. This cannot reliably detect all paraphrases and may occasionally flag different questions as similar.
 - KIM `triage.json` now uses `triage_system: "unvalidated-prototype"` rather than claiming Manchester; downstream consumers must not interpret it as a validated triage assessment.
-- The ePA medication plan is read only after consent, with the patient's Gesundheits-ID token.
+- After consent, medication, allergy, and condition resources are read independently with the
+  patient's Gesundheits-ID token. Partial reads and HTTP 401/403 are reported without blocking
+  scheduling; 403 is not interpreted as an ePA opt-out. ePA allergies and conditions remain
+  separate from patient-reported symptoms and triage and are labeled as ePA data in the KIM letter.
 - Red/orange patients get acute slots, green patients standard slots.
 - KIS/gateway calls use a connect/read timeout (`FHIR_CONNECT_TIMEOUT_S`, `FHIR_READ_TIMEOUT_S`). Failures are mapped to `GATEWAY_TIMEOUT`, `GATEWAY_CONNECTION_FAILED`, `GATEWAY_AUTH_ERROR` or `GATEWAY_ERROR`; the `error_handler` node writes an alerting audit event (`scheduling_failed`), shows the patient a neutral German fallback message (no stack trace) and ends the run. The API response then has `scheduling_failed: true`.
 - The graph is invoked in `backend/app/api/endpoints.py` (`_run`).

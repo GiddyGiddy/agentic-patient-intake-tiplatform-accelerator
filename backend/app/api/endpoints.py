@@ -41,13 +41,15 @@ def _view(session: IntakeSession, reply: str | None = None, iam_message: str | N
         "kim_sent": r.get("kim_sent", False),
         "medication_plan": r.get("medication_plan", []),
         "epa_available": r.get("epa_available"),
+        "epa_status": r.get("epa_status"),
         "scheduling_failed": False,
     }
 
 
-def _run(sub: str, token: str, session: IntakeSession) -> dict:
+def _run(sub: str, token: str, session: IntakeSession, kvnr: str | None = None) -> dict:
     state = {
         "patient_id": sub,
+        "kvnr": kvnr,
         "messages": list(session.messages),
         "intake_questions": dict(session.result.get("intake_questions", {})),
         "consent_granted": session.consent_active,
@@ -74,7 +76,14 @@ def _run(sub: str, token: str, session: IntakeSession) -> dict:
         questions = dict(session.result.get("intake_questions", {}))
         questions[str(len(session.messages))] = result["reply"]
         session.result["intake_questions"] = questions
-    for key in ("appointment_id", "slot_start", "kim_sent", "medication_plan", "epa_available"):
+    for key in (
+        "appointment_id",
+        "slot_start",
+        "kim_sent",
+        "medication_plan",
+        "epa_available",
+        "epa_status",
+    ):
         if key in result:
             session.result[key] = result[key]
     view = _view(session, result.get("reply"), result.get("iam_message"))
@@ -107,10 +116,10 @@ def chat(
         audit("chat_message", sub, count=len(session.messages))
         if session.triage_score and not session.consent_active:
             if session.triage_score != "Rot" and _keyword_score(" ".join(session.messages)) == "Rot":
-                return _run(sub, _token(creds), session)
+                return _run(sub, _token(creds), session, user.get("kvnr"))
             # Intake is finished and waiting for consent.
             return _view(session)
-        return _run(sub, _token(creds), session)
+        return _run(sub, _token(creds), session, user.get("kvnr"))
 
 
 @router.post("/consent")
@@ -134,7 +143,7 @@ def set_consent(
             return _view(session)
         session.grant(user.get("jti"))
         audit("consent_granted", sub, ttl_s=settings.consent_ttl_s)
-        return _run(sub, _token(creds), session)
+        return _run(sub, _token(creds), session, user.get("kvnr"))
 
 
 @router.delete("/session", status_code=204)

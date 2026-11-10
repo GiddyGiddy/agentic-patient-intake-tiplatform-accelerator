@@ -13,7 +13,7 @@ def get_current_user(
 ) -> dict:
     """Validates the Gesundheits-ID access token (OIDC, RS256) against the IdP JWKS."""
     if settings.auth_disabled:
-        return {"sub": "dev-patient"}
+        return {"sub": "dev-patient", "kvnr": settings.dev_kvnr}
     if creds is None:
         raise HTTPException(401, "Missing bearer token")
     try:

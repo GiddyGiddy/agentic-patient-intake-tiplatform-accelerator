@@ -10,6 +10,8 @@ class Settings(BaseSettings):
     oidc_jwks_url: str = "http://mock-id-dienst:8081/jwks"
     oidc_audience: str = "patient-intake"
     auth_disabled: bool = False
+    # Local-only demo identity used when authentication is explicitly disabled.
+    dev_kvnr: str = "X110000001"
 
     fhir_base_url: str = "http://mock-kis-fhir:8080/fhir"
     database_url: str = "postgresql+psycopg://intake:intake@postgres:5432/intake"

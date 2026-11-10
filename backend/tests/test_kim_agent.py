@@ -67,3 +67,39 @@ def test_template_letter_contains_medication_plan():
     )
     assert "Ramipril 5 mg" in text
     assert "nicht erreichbar" in kim_agent._template_letter({"patient_id": "X1", "epa_available": False})
+
+
+def test_template_letter_keeps_epa_allergies_and_conditions_separate():
+    text = kim_agent._template_letter(
+        {
+            "patient_id": "X1",
+            "medication_plan": ["Ramipril 5 mg"],
+            "allergies": ["Penicillin"],
+            "conditions": ["Hypertonie"],
+            "epa_errors": {"conditions": "forbidden"},
+            "epa_status": "partial",
+            "epa_available": False,
+        }
+    )
+    assert "Allergien/Unverträglichkeiten (ePA): Penicillin" in text
+    assert "Vorerkrankungen (ePA): wegen fehlender Berechtigung nicht abrufbar (HTTP 403)" in text
+    assert "Einträge sind damit nicht ausgeschlossen" in text
+
+
+def test_llm_letter_appends_structured_epa_context(monkeypatch):
+    monkeypatch.setattr(kim_agent.settings, "llm_base_url", "http://llm")
+    monkeypatch.setattr(kim_agent, "generate", lambda *args, **kwargs: "Arztbrieftext")
+
+    text = kim_agent._llm_letter(
+        {
+            "patient_id": "X1",
+            "allergies": ["Penicillin"],
+            "conditions": ["Hypertonie"],
+            "epa_status": "available",
+        }
+    )
+
+    assert text is not None
+    assert text.startswith("Arztbrieftext\n\nWeitere ePA-Angaben")
+    assert "Allergien/Unverträglichkeiten (ePA): Penicillin" in text
+    assert "Vorerkrankungen (ePA): Hypertonie" in text
