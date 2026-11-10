@@ -7,15 +7,13 @@ Agentic AI patient intake prototype on the Telematikinfrastruktur (TI): anamnesi
 
 | Area | Status |
 |---|---|
-| Frontend (OIDC PKCE login, chat, consent dialog, emergency banner, result card, a11y) | Done, 26 Jest tests |
-| Backend (agents, server-side session and consent, ePA read, FHIR booking, KIM, audit, hardening, ErrorHandler for TI failures) | Done, 66 pytest tests |
-| PostgreSQL persistence (sessions, consent, audit, KIM outbox) | Done, tests pass on SQLite and on a real PostgreSQL; Alembic migrations for production |
-| Mock TI services (ID-Dienst, KIS/ePA HAPI FHIR, KIM client module, TI gateway with simulated SMC-B) | Done |
-| CI (GitHub Actions: tests on SQLite + PostgreSQL, frontend build, pip/npm audit, gitleaks, image builds + Trivy) | Done, green on GitHub |
-| CD to the on-premise server (`cd.yml`, `compose.prod.yml`, `deploy/`) | Pull-based: images built, scanned and pushed to GHCR by GitHub; server runs `deploy/deploy.sh`. Production image stack verified locally; not yet run on the VM |
-| Podman compose for the whole dev stack | Config validated; full `podman compose up --build` not yet run end-to-end |
-| Browser run-through of frontend + backend + mocks together | Not yet done |
-| Production TI connection (real gateway/Konnektor, SMC-B/HSM-B, real Gesundheits-ID) | Not part of this accelerator; only URLs/config change |
+| Frontend and backend | Prototype implemented: chat, reference BFF and mock OIDC login, simulated consent, agent workflow, booking and KIM handoff; automated tests are included. |
+| Persistence | Intake sessions, consent, audit and KIM outbox use the configured database; reference BFF login sessions are separate and in memory. CI tests SQLite and PostgreSQL. |
+| Local development | Compose provides the reference browser login and mock TI services. A browser run-through with synthetic data has exercised login, simulated consent, booking and mock KIM handoff. |
+| Staging | The overlay uses mock OIDC login, not the local reference BFF. It configures 15-minute mock tokens and Ollama keep-alive; deployment of these settings requires updated images and has not been verified on the staging server. |
+| CI | GitHub Actions runs tests, security scans, Compose validation and image builds. Check the latest run for its current status; dependency and secret scans can stop early if a preceding audit fails. |
+| CD | Pull-based GHCR image deployment with `deploy/deploy.sh` and a staging overlay. A production deployment and real TI integration have not been verified. |
+| Production readiness | Not clinically validated or production-ready. Real Gesundheits-ID, ePA authorization and TI integration require implementation, security assessment and operational approval beyond changing URLs or configuration. |
 
 ## Solution Architecture
 
@@ -359,8 +357,8 @@ podman compose up -d --build backend
 
 Compose then uses the values in `.env`, or its Ollama defaults if those entries
 are absent. Production retains its existing Ollama configuration; do not change
-it for a benchmark. Provider failures fall back to deterministic intake or a
-template KIM letter, with a warning in the backend logs.
+it for a benchmark. An unavailable or invalid intake response stops automatic
+non-emergency assessment; the KIM letter can fall back to a template.
 
 ## Agent flow
 
@@ -498,8 +496,9 @@ To enable deployments follow [docs/cd-setup.md](docs/cd-setup.md) (server bootst
 
 ## Known limitations
 
-- Full dev stack not yet exercised end-to-end in containers or a browser.
-- The CD pipeline and `deploy.sh` have not run on the Ubuntu VM yet; there is no automatic deploy or approval gate (pull-based by design for now).
+- The local browser run-through used synthetic data and mock services; it is not validation of a real TI or clinical workflow.
+- The staging reference BFF login is not implemented. The staging overlay's mock login and lifetime settings require deployed matching images; the remote deployment has not been verified.
+- Production deployment and real TI integration have not been verified; deployment is pull-based without an automatic deploy or approval gate.
 - A rollback does not revert the database schema (restore the `pg_dump` manually if needed).
 - The `error_handler` alert is an audit-log entry; there is no Sentry/Prometheus hook yet.
 - Rate limiter is in memory per instance.
