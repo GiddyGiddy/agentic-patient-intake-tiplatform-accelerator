@@ -19,7 +19,7 @@ Agentic AI patient intake prototype on the Telematikinfrastruktur (TI): anamnesi
 
 ![Agentic Patient Intake on-premise solution architecture](./docs/solution-architecture.svg)
 
-The backend, database and LLM run in the clinic's own data center because the data is sensitive health data. Nothing is sent to a public cloud. The Azure items in the diagram (Arc, Monitor) are an optional management layer for operational metadata only. The icons are simplified drawings, not the official Azure icon set.
+The backend, database and LLM run in the clinic's own data center. Nothing is sent to a public cloud.
 
 ### Components
 
